@@ -27,6 +27,52 @@ const char *kYunetModel = "models/face_detection_yunet_2023mar.onnx";
 const char *kSfaceModel = "models/face_recognition_sface_2021dec.onnx";
 
 /**
+ * @brief Set up the headless YuNet detector.
+ * @param detector Reference to the FaceDetector instance.
+ * @return `true` if the detector was set up successfully.
+ */
+bool setupHeadlessDetector(FaceDetector &detector)
+{
+    if (!detector.setup(ofToDataPath(kYunetModel)))
+    {
+        std::fprintf(stderr, "could not load the YuNet model — run scripts/bootstrap.py first\n");
+        return false;
+    }
+    return true;
+}
+
+/**
+ * @brief Set up the headless SFace recognizer.
+ * @param recognizer Reference to the FaceRecognizer instance.
+ * @return `true` if the recognizer was set up successfully.
+ */
+bool setupHeadlessRecognizer(FaceRecognizer &recognizer)
+{
+    if (!recognizer.setup(ofToDataPath(kSfaceModel)))
+    {
+        std::fprintf(stderr, "could not load the SFace model — run scripts/bootstrap.py first\n");
+        return false;
+    }
+    return true;
+}
+
+/**
+ * @brief Load an image in headless mode.
+ * @param path Image path relative to `bin/data` or absolute if supported by OF.
+ * @param pixels Reference to an ofPixels object to store the loaded image.
+ * @return `true` if the image was loaded successfully.
+ */
+bool loadHeadlessImage(const std::string &path, ofPixels &pixels)
+{
+    if (!ofLoadImage(pixels, ofToDataPath(path)))
+    {
+        std::fprintf(stderr, "could not load image: %s\n", path.c_str());
+        return false;
+    }
+    return true;
+}
+
+/**
  * @brief Run dependency and model self-checks without creating a window.
  * @return Process exit code compatible with CI usage.
  */
@@ -74,16 +120,14 @@ int runSelftest()
 int runHeadlessDetect(const std::string &path)
 {
     FaceDetector detector;
-    if (!detector.setup(ofToDataPath(kYunetModel)))
+    if (!setupHeadlessDetector(detector))
     {
-        std::fprintf(stderr, "could not load the YuNet model — run scripts/bootstrap.py first\n");
         return 1;
     }
 
     ofPixels pixels;
-    if (!ofLoadImage(pixels, ofToDataPath(path)))
+    if (!loadHeadlessImage(path, pixels))
     {
-        std::fprintf(stderr, "could not load image: %s\n", path.c_str());
         return 1;
     }
 
@@ -109,15 +153,13 @@ int runHeadlessDetect(const std::string &path)
 int runHeadlessIdentify(const std::string &path)
 {
     FaceDetector detector;
-    if (!detector.setup(ofToDataPath(kYunetModel)))
+    if (!setupHeadlessDetector(detector))
     {
-        std::fprintf(stderr, "could not load the YuNet model — run scripts/bootstrap.py first\n");
         return 1;
     }
     FaceRecognizer recognizer;
-    if (!recognizer.setup(ofToDataPath(kSfaceModel)))
+    if (!setupHeadlessRecognizer(recognizer))
     {
-        std::fprintf(stderr, "could not load the SFace model — run scripts/bootstrap.py first\n");
         return 1;
     }
     if (recognizer.loadGallery(ofToDataPath("gallery"), detector) == 0)
@@ -127,9 +169,8 @@ int runHeadlessIdentify(const std::string &path)
     }
 
     ofPixels pixels;
-    if (!ofLoadImage(pixels, ofToDataPath(path)))
+    if (!loadHeadlessImage(path, pixels))
     {
-        std::fprintf(stderr, "could not load image: %s\n", path.c_str());
         return 1;
     }
 
