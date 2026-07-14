@@ -1,3 +1,8 @@
+/**
+ * @file FaceDetector.cpp
+ * @brief Implementation of YuNet face detection helpers.
+ */
+
 #include "FaceDetector.h"
 
 #include <cmath>
@@ -11,6 +16,8 @@ bool FaceDetector::setup(const std::string &modelPath, float scoreThreshold)
     try
     {
         detector = cv::FaceDetectorYN::create(modelPath, "", cv::Size(320, 320), scoreThreshold);
+        ofLogNotice("FaceDetector") << "loaded YuNet model from " << modelPath << " with threshold "
+                                    << ofToString(scoreThreshold, 2);
     }
     catch (const cv::Exception &e)
     {
@@ -25,6 +32,7 @@ void FaceDetector::setScoreThreshold(float threshold)
     if (detector)
     {
         detector->setScoreThreshold(threshold);
+        ofLogNotice("FaceDetector") << "score threshold set to " << ofToString(threshold, 2);
     }
 }
 
@@ -42,6 +50,8 @@ std::vector<FaceDetection> FaceDetector::detect(const cv::Mat &bgr)
     if (longSide > maxInferenceSide)
     {
         scale = float(longSide) / maxInferenceSide;
+        // Shrink oversized frames before inference, then scale boxes and
+        // landmarks back so the rest of the pipeline stays resolution-agnostic.
         cv::resize(bgr, input, cv::Size(std::lround(bgr.cols / scale), std::lround(bgr.rows / scale)), 0, 0,
                    cv::INTER_AREA);
     }
@@ -55,6 +65,8 @@ std::vector<FaceDetection> FaceDetector::detect(const cv::Mat &bgr)
     {
         const float *f = faces.ptr<float>(i);
         FaceDetection d;
+        // YuNet emits all coordinates in a flat float row; decode them once
+        // here into strongly typed app-facing structures.
         d.box = ofRectangle(f[kBoxXIndex] * scale, f[kBoxYIndex] * scale, f[kBoxWidthIndex] * scale,
                             f[kBoxHeightIndex] * scale);
         for (int k = 0; k < kNumLandmarks; k++)
@@ -69,7 +81,9 @@ std::vector<FaceDetection> FaceDetector::detect(const cv::Mat &bgr)
 
 cv::Mat toBgr(ofPixels pixels)
 {
-    pixels.setImageType(OF_IMAGE_COLOR); // normalize gray/alpha to 8-bit RGB
+    // Normalize every input format to RGB first so OpenCV always receives a
+    // predictable 8-bit BGR image, regardless of the source.
+    pixels.setImageType(OF_IMAGE_COLOR);
     cv::Mat bgr;
     cv::cvtColor(ofxCv::toCv(pixels), bgr, cv::COLOR_RGB2BGR);
     return bgr;
@@ -82,8 +96,8 @@ std::vector<FaceDetection> detectInPixels(FaceDetector &detector, ofPixels pixel
 
 cv::Mat faceDetectionToYunetRow(const FaceDetection &face)
 {
-    // inverse of the decoding in detect(): x, y, w, h, five landmark (x, y)
-    // pairs, score
+    // Rebuild the original YuNet row because OpenCV's SFace alignment API
+    // expects that exact detector output layout rather than our decoded struct.
     cv::Mat row(1, kYunetRowSize, CV_32F);
     float *f = row.ptr<float>(0);
     f[kBoxXIndex] = face.box.x;

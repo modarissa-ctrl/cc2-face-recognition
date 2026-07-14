@@ -1,3 +1,8 @@
+/**
+ * @file FaceRecognizer.h
+ * @brief Gallery-backed SFace recognition interfaces.
+ */
+
 #pragma once
 
 #include <string>
@@ -8,60 +13,108 @@
 
 #include "FaceDetector.h"
 
-// Best gallery match for one detected face. `name` is always the closest
-// gallery person; whether the face is labelled with it or shown as "unknown"
-// is decided by comparing `score` against the caller's match threshold, so a
-// threshold change needs no re-embedding.
+/**
+ * @brief Best gallery match produced for one detected face.
+ *
+ * `name` stores the closest gallery person regardless of whether the caller
+ * later accepts it as a recognized identity. The acceptance decision is made
+ * outside this struct by comparing `score` against a threshold.
+ */
 struct FaceMatch
 {
+    /**
+     * @brief Closest gallery identity, or empty when no embedding was produced.
+     */
     std::string name;
-    float score = -1.0f; // cosine similarity, higher = more similar
+    /**
+     * @brief Cosine similarity score where larger values mean closer matches.
+     */
+    float score = -1.0f;
 };
 
-// Wraps OpenCV's SFace recognizer (cv::FaceRecognizerSF) plus the gallery of
-// known people. Each face is aligned via its landmarks, embedded into a 128-d
-// vector, and matched against gallery embeddings by cosine similarity.
+/**
+ * @brief SFace recognizer with an in-memory gallery of labeled embeddings.
+ *
+ * Each face is aligned from YuNet landmarks, embedded into feature space, and
+ * compared against all loaded gallery embeddings with cosine similarity.
+ */
 class FaceRecognizer
 {
   public:
-    // SFace's canonical cosine-similarity decision threshold.
+    /**
+     * @brief Default cosine threshold recommended by the SFace model.
+     */
     static constexpr float kDefaultMatchThreshold = 0.363f;
 
+    /**
+     * @brief Load the SFace ONNX model.
+     * @param modelPath Path to the SFace model file.
+     * @return `true` when the recognizer was created successfully.
+     */
     bool setup(const std::string &modelPath);
+
+    /**
+     * @brief Report whether the recognizer is ready for embedding.
+     * @return `true` when the recognizer instance exists.
+     */
     bool isLoaded() const
     {
         return recognizer != nullptr;
     }
 
-    // Load a gallery folder with one subfolder per person, e.g.
-    // gallery/alice/*.jpg. Detects the single most confident face in each
-    // photo (using `detector`) and stores its embedding under the folder
-    // name; a person may have several photos and therefore several
-    // embeddings. Replaces any previously loaded gallery. Returns the number
-    // of embeddings loaded.
+    /**
+     * @brief Load a labeled face gallery from disk.
+     * @param dirPath Folder containing one subfolder per person.
+     * @param detector Detector used to locate faces in the gallery photos.
+     * @return Number of successfully embedded gallery images.
+     *
+     * Each image contributes the single most confident detected face. Loading a
+     * new gallery replaces any previously stored entries.
+     */
     int loadGallery(const std::string &dirPath, FaceDetector &detector);
+
+    /**
+     * @brief Report whether any gallery embeddings are loaded.
+     * @return `true` when the gallery contains at least one entry.
+     */
     bool hasGallery() const
     {
         return !entries.empty();
     }
+
+    /**
+     * @brief Number of distinct people represented in the gallery.
+     * @return Count of person folders with at least one usable embedding.
+     */
     int personCount() const
     {
         return numPersons;
     }
 
-    // Embed each detected face (bgr must be the same image the detections
-    // came from, original resolution) and return its best gallery match,
-    // index-aligned with `faces`.
+    /**
+     * @brief Match detected faces against the loaded gallery.
+     * @param bgr Original image in BGR layout used to produce `faces`.
+     * @param faces Face detections to embed and compare.
+     * @return Best match for each input face, index-aligned with `faces`.
+     */
     std::vector<FaceMatch> identify(const cv::Mat &bgr, const std::vector<FaceDetection> &faces);
 
   private:
+    /**
+     * @brief One labeled embedding stored in the gallery.
+     */
     struct Entry
     {
         std::string name;
-        cv::Mat feature; // 1x128 float embedding
+        cv::Mat feature;
     };
 
-    // alignCrop + feature; empty Mat on failure
+    /**
+     * @brief Align and embed one detected face.
+     * @param bgr Source image in original BGR resolution.
+     * @param face Detection describing the face to embed.
+     * @return `1x128` float embedding, or an empty matrix on failure.
+     */
     cv::Mat embed(const cv::Mat &bgr, const FaceDetection &face);
 
     cv::Ptr<cv::FaceRecognizerSF> recognizer;

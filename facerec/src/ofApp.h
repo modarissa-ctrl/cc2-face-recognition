@@ -1,3 +1,8 @@
+/**
+ * @file ofApp.h
+ * @brief Interactive openFrameworks application for face detection and recognition.
+ */
+
 #pragma once
 
 #include <utility>
@@ -8,32 +13,51 @@
 #include "FaceDetector.h"
 #include "FaceRecognizer.h"
 
-// M3: detection (M1/M2) plus recognition. Three switchable inputs — still
-// image, video file, live webcam — switched from the GUI panel; opening a
-// file (O key, drag & drop, or a plain <path> argument, resolved against
-// bin/data/) picks image vs. video mode by file extension. Every new frame
-// runs through YuNet, then each face is embedded with SFace and matched
-// against the gallery (data/gallery/<person>/*.jpg, auto-loaded at startup,
-// re-loadable from the panel). Overlays show boxes, landmarks, name or
-// "unknown" with the match score, face count and pipeline time. The match
-// threshold slider only changes labelling, so it is applied at draw time —
-// no re-embedding.
-//
-// Headless modes (--selftest, --detect <image>, --identify <image>) are
-// handled in main() before any GL window is created, so they run on a
-// display-less machine.
+/**
+ * @brief Interactive face recognition application.
+ *
+ * The app supports still images, video playback, and a live webcam. Frames are
+ * detected with YuNet, optionally recognized with SFace against a folder-based
+ * gallery, and then rendered with debugging overlays and timing information.
+ *
+ * Headless utilities such as `--selftest`, `--detect`, and `--identify` are
+ * handled in `main()` before any OpenGL window is created.
+ */
 class ofApp : public ofBaseApp
 {
   public:
+    /**
+     * @brief Initialize models, GUI controls, and optional startup media.
+     */
     void setup() override;
+    /**
+     * @brief Advance the active source and run per-frame detection.
+     */
     void update() override;
+    /**
+     * @brief Draw the active source, overlays, performance text, and GUI.
+     */
     void draw() override;
+    /**
+     * @brief Handle keyboard shortcuts such as opening files or pausing video.
+     * @param key Pressed key code.
+     */
     void keyPressed(int key) override;
+    /**
+     * @brief Handle drag-and-drop media input.
+     * @param dragInfo Dropped file metadata from openFrameworks.
+     */
     void dragEvent(ofDragInfo dragInfo) override;
 
-    std::vector<std::string> args; // command-line args, set by main()
+    /**
+     * @brief Command-line arguments forwarded from `main()`.
+     */
+    std::vector<std::string> args;
 
   private:
+    /**
+     * @brief Runtime source type that currently feeds frames into the pipeline.
+     */
     enum class InputMode
     {
         None,
@@ -49,13 +73,13 @@ class ofApp : public ofBaseApp
     ofImage image;
     ofVideoPlayer video;
     ofVideoGrabber grabber;
-    std::string sourceName; // file name, or "webcam"
+    std::string sourceName;
 
     std::vector<FaceDetection> faces;
-    std::vector<FaceMatch> matches; // index-aligned with faces; empty if no gallery
-    float detectMillis = 0.0f;      // smoothed across frames for video sources
+    std::vector<FaceMatch> matches;
+    float detectMillis = 0.0f;
     uint64_t lastLogMillis = 0;
-    std::string status; // message shown while no source is active
+    std::string status;
 
     ofxPanel gui;
     ofxButton openImageButton;
@@ -63,31 +87,80 @@ class ofApp : public ofBaseApp
     ofxButton loadGalleryButton;
     ofParameter<bool> webcamOn{"webcam", false};
     ofParameter<float> scoreThreshold{"conf threshold", 0.6f, 0.05f, 0.95f};
-    // kDefaultMatchThreshold is odr-used here; no out-of-line definition is
-    // needed because C++17 makes static constexpr members implicitly inline.
     ofParameter<float> matchThreshold{"match threshold", FaceRecognizer::kDefaultMatchThreshold, 0.0f, 1.0f};
 
+    /**
+     * @brief Open a path and dispatch it to image or video loading.
+     * @param path Absolute or data-relative media path.
+     * @return `true` when the source was opened successfully.
+     */
     bool openPath(const std::string &path);
+    /**
+     * @brief Load a still image and immediately process it.
+     * @param path Image file path.
+     * @return `true` when the image was loaded successfully.
+     */
     bool loadImage(const std::string &path);
+    /**
+     * @brief Load a video source and start playback.
+     * @param path Video file path.
+     * @return `true` when the video backend accepted the file.
+     */
     bool loadVideo(const std::string &path);
+    /**
+     * @brief Tear down the currently active media source and reset state.
+     */
     void stopCurrentSource();
+    /**
+     * @brief Run detection and optional recognition on one frame.
+     * @param pixels Frame pixels from the active source.
+     */
     void detectFrame(const ofPixels &pixels);
+    /**
+     * @brief Load or reload the recognition gallery.
+     * @param path Folder containing one subfolder per person.
+     */
     void loadGallery(const std::string &path);
 
-    // a still image keeps its overlays until re-detected; these let the
-    // image path be recognized and refreshed in one place
+    /**
+     * @brief Report whether the current source is a loaded still image.
+     * @return `true` when an image is active and allocated.
+     */
     bool hasStillImage() const
     {
         return mode == InputMode::Image && image.isAllocated();
     }
+    /**
+     * @brief Re-run detection for the current still image if one is active.
+     */
     void refreshStillImage();
 
-    // pixel size of the active source, or {0, 0} when none is producing frames
+    /**
+     * @brief Current source dimensions in pixels.
+     * @return Width and height, or `{0, 0}` when no source is producing frames.
+     */
     std::pair<float, float> sourceSize() const;
 
+    /**
+     * @brief GUI callback for opening an image file.
+     */
     void onOpenImage();
+    /**
+     * @brief GUI callback for opening a video file.
+     */
     void onOpenVideo();
+    /**
+     * @brief GUI callback for choosing a gallery directory.
+     */
     void onLoadGallery();
+    /**
+     * @brief GUI callback for enabling or disabling the webcam.
+     * @param on New webcam toggle state.
+     */
     void onWebcamToggle(bool &on);
+    /**
+     * @brief GUI callback for updating the YuNet confidence threshold.
+     * @param value New threshold value.
+     */
     void onScoreThreshold(float &value);
 };

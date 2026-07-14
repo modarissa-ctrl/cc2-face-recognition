@@ -1,3 +1,8 @@
+/**
+ * @file FaceRecognizer.cpp
+ * @brief Implementation of SFace recognition and gallery loading.
+ */
+
 #include "FaceRecognizer.h"
 
 #include <algorithm>
@@ -9,6 +14,7 @@ bool FaceRecognizer::setup(const std::string &modelPath)
     try
     {
         recognizer = cv::FaceRecognizerSF::create(modelPath, "");
+        ofLogNotice("FaceRecognizer") << "loaded SFace model from " << modelPath;
     }
     catch (const cv::Exception &e)
     {
@@ -20,7 +26,8 @@ bool FaceRecognizer::setup(const std::string &modelPath)
 
 cv::Mat FaceRecognizer::embed(const cv::Mat &bgr, const FaceDetection &face)
 {
-    // rebuild the YuNet output row alignCrop() expects
+    // SFace consumes YuNet's raw row format for geometric alignment, so the
+    // decoded detection has to be serialized back before feature extraction.
     cv::Mat row = faceDetectionToYunetRow(face);
 
     try
@@ -44,6 +51,7 @@ int FaceRecognizer::loadGallery(const std::string &dirPath, FaceDetector &detect
     numPersons = 0;
     if (!isLoaded())
     {
+        ofLogWarning("FaceRecognizer") << "cannot load gallery before the recognizer model is ready";
         return 0;
     }
 
@@ -54,6 +62,7 @@ int FaceRecognizer::loadGallery(const std::string &dirPath, FaceDetector &detect
         return 0;
     }
     root.listDir();
+    ofLogNotice("FaceRecognizer") << "loading gallery from " << dirPath;
 
     for (const auto &personFile : root.getFiles())
     {
@@ -62,6 +71,7 @@ int FaceRecognizer::loadGallery(const std::string &dirPath, FaceDetector &detect
             continue;
         }
         std::string name = personFile.getBaseName();
+        ofLogNotice("FaceRecognizer") << "processing gallery person " << name;
 
         ofDirectory photos(personFile.getAbsolutePath());
         for (const std::string &ext : {"jpg", "jpeg", "png", "bmp", "pgm"})
@@ -87,6 +97,9 @@ int FaceRecognizer::loadGallery(const std::string &dirPath, FaceDetector &detect
                 ofLogWarning("FaceRecognizer") << "no face found in " << path;
                 continue;
             }
+            // Gallery photos may contain multiple faces; keep the most
+            // confident one so each image contributes exactly one identity
+            // example.
             auto best =
                 std::max_element(faces.begin(), faces.end(), [](const FaceDetection &a, const FaceDetection &b) {
                     return a.confidence < b.confidence;
@@ -131,6 +144,8 @@ std::vector<FaceMatch> FaceRecognizer::identify(const cv::Mat &bgr, const std::v
         }
         for (const auto &entry : entries)
         {
+            // Cosine similarity is monotonic for "best match", so keeping the
+            // largest score is enough.
             float score = float(recognizer->match(feature, entry.feature, cv::FaceRecognizerSF::DisType::FR_COSINE));
             if (score > matches[i].score)
             {

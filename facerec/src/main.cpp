@@ -1,3 +1,8 @@
+/**
+ * @file main.cpp
+ * @brief Desktop entry point and headless utility modes for `facerec`.
+ */
+
 #include "ofMain.h"
 #include "ofApp.h"
 #include "FaceDetector.h"
@@ -12,11 +17,19 @@
 namespace
 {
 
+/**
+ * @brief Relative path to the YuNet detector model inside `bin/data`.
+ */
 const char *kYunetModel = "models/face_detection_yunet_2023mar.onnx";
+/**
+ * @brief Relative path to the SFace recognizer model inside `bin/data`.
+ */
 const char *kSfaceModel = "models/face_recognition_sface_2021dec.onnx";
 
-// M0 environment checks. Run by scripts/build.py --check to verify the build
-// without opening a window.
+/**
+ * @brief Run dependency and model self-checks without creating a window.
+ * @return Process exit code compatible with CI usage.
+ */
 int runSelftest()
 {
     bool allPassed = true;
@@ -53,8 +66,11 @@ int runSelftest()
     return allPassed ? 0 : 1;
 }
 
-// Detect faces in one image, print results, and exit. Relative paths resolve
-// against bin/data/, matching the plain-argument startup path.
+/**
+ * @brief Detect faces in one image and print the results.
+ * @param path Image path relative to `bin/data` or absolute if supported by OF.
+ * @return Process exit code.
+ */
 int runHeadlessDetect(const std::string &path)
 {
     FaceDetector detector;
@@ -82,10 +98,14 @@ int runHeadlessDetect(const std::string &path)
     return 0;
 }
 
-// Detect + recognize faces in one image against the data/gallery folder,
-// print name/score per face, and exit. `name` applies the default match
-// threshold; `best`/`score` always show the closest gallery person, so
-// threshold tuning can be done from the raw output.
+/**
+ * @brief Detect and recognize faces in one image against the default gallery.
+ * @param path Image path relative to `bin/data` or absolute if supported by OF.
+ * @return Process exit code.
+ *
+ * The printed `name` field respects the default match threshold, while `best`
+ * and `score` always expose the closest gallery entry for diagnostics.
+ */
 int runHeadlessIdentify(const std::string &path)
 {
     FaceDetector detector;
@@ -141,8 +161,8 @@ int main(int argc, char **argv)
         args.push_back(argv[i]);
     }
 
-    // Headless modes run before any window is created, so they work on a
-    // display-less machine (e.g. CI running scripts/build.py --check).
+    // Execute CLI-only modes before touching any GL state so CI and remote
+    // hosts can run diagnostics without a display server.
     if (std::find(args.begin(), args.end(), "--selftest") != args.end())
     {
         return runSelftest();

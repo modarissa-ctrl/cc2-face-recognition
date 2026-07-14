@@ -1,3 +1,8 @@
+/**
+ * @file ofApp.cpp
+ * @brief Interactive application flow for image, video, and webcam recognition.
+ */
+
 #include "ofApp.h"
 
 #include <algorithm>
@@ -6,8 +11,16 @@
 namespace
 {
 
+/**
+ * @brief Video file extensions accepted by the media loader.
+ */
 const std::vector<std::string> kVideoExtensions = {"mp4", "mov", "m4v", "avi", "mpg", "mpeg", "mkv", "webm"};
 
+/**
+ * @brief Decide whether a path should be treated as a video source.
+ * @param path Candidate media path.
+ * @return `true` when the extension belongs to the known video set.
+ */
 bool isVideoPath(const std::string &path)
 {
     std::string ext = ofToLower(ofFilePath::getFileExt(path));
@@ -54,6 +67,7 @@ void ofApp::setup()
     {
         if (!arg.empty() && arg[0] != '-')
         {
+            ofLogNotice("facerec") << "opening startup path " << arg;
             openPath(ofToDataPath(arg));
             break;
         }
@@ -62,11 +76,16 @@ void ofApp::setup()
 
 bool ofApp::openPath(const std::string &path)
 {
+    ofLogNotice("facerec") << "opening path " << path;
     return isVideoPath(path) ? loadVideo(path) : loadImage(path);
 }
 
 void ofApp::stopCurrentSource()
 {
+    if (mode != InputMode::None)
+    {
+        ofLogNotice("facerec") << "stopping source " << sourceName;
+    }
     if (mode == InputMode::Video)
     {
         video.close();
@@ -88,6 +107,7 @@ bool ofApp::loadImage(const std::string &path)
     if (!next.load(path))
     {
         status = "Could not load image: " + path;
+        ofLogError("facerec") << status;
         return false;
     }
     stopCurrentSource();
@@ -106,6 +126,7 @@ bool ofApp::loadVideo(const std::string &path)
     if (!next.load(path))
     {
         status = "Could not load video: " + path;
+        ofLogError("facerec") << status;
         return false;
     }
     stopCurrentSource();
@@ -114,6 +135,8 @@ bool ofApp::loadVideo(const std::string &path)
     video.play();
     mode = InputMode::Video;
     sourceName = ofFilePath::getFileName(path);
+    status.clear();
+    ofLogNotice("facerec") << "video source ready: " << sourceName;
     return true;
 }
 
@@ -153,6 +176,8 @@ void ofApp::refreshStillImage()
 {
     if (hasStillImage())
     {
+        // Still images do not produce future frames, so threshold or gallery
+        // changes require an explicit refresh to keep overlays in sync.
         detectMillis = 0.0f;
         detectFrame(image.getPixels());
     }
@@ -165,7 +190,8 @@ void ofApp::detectFrame(const ofPixels &pixels)
     faces = detector.detect(bgr);
     matches = recognizer.hasGallery() ? recognizer.identify(bgr, faces) : std::vector<FaceMatch>();
     float millis = (ofGetElapsedTimeMicros() - start) / 1000.0f;
-    // smooth the readout across frames; first measurement is taken as-is
+    // Smooth only the UI-facing latency number so the overlay stays readable
+    // while the underlying detections remain frame-accurate.
     detectMillis = detectMillis == 0.0f ? millis : ofLerp(detectMillis, millis, 0.15f);
 }
 
@@ -195,9 +221,8 @@ void ofApp::draw()
     if (srcW <= 0 || srcH <= 0)
     {
         ofSetColor(255);
-        // A video that load()ed but isn't yet producing frames (or failed
-        // asynchronously in the backend) lands here; show a source-specific
-        // message rather than the generic startup text.
+        // Distinguish "startup/no source" from "video backend accepted the file
+        // but frames have not started arriving yet".
         std::string message = (mode == InputMode::Video) ? "Loading video " + sourceName +
                                                                " ... (if this persists, the file may be unplayable)"
                                                          : status;
@@ -206,7 +231,8 @@ void ofApp::draw()
         return;
     }
 
-    // fit the source into the window, letterboxed
+    // Preserve aspect ratio for all source types while filling as much of the
+    // window as possible.
     float scale = std::min(ofGetWidth() / srcW, ofGetHeight() / srcH);
     float offsetX = (ofGetWidth() - srcW * scale) / 2;
     float offsetY = (ofGetHeight() - srcH * scale) / 2;
@@ -231,9 +257,9 @@ void ofApp::draw()
         float x = offsetX + face.box.x * scale;
         float y = offsetY + face.box.y * scale;
 
-        // the match threshold is applied here, at draw time: identify()
-        // always reports the closest gallery person, and the slider only
-        // decides whether that counts as a match or "unknown"
+        // The recognition pass always stores the nearest gallery identity.
+        // The user-adjustable threshold is applied only for display so the UI
+        // can be retuned without recomputing embeddings.
         bool recognized = i < matches.size() && matches[i].score >= matchThreshold;
 
         ofPushStyle();
@@ -258,8 +284,8 @@ void ofApp::draw()
         std::string label = ofToString(face.confidence, 2);
         if (i < matches.size())
         {
-            // score < 0 means no embedding for this face — show "unknown"
-            // with no number (recognized is false, so name is "unknown")
+            // A negative score means feature extraction failed for this face, so
+            // there is no meaningful similarity number to render.
             std::string name = recognized ? matches[i].name : "unknown";
             label = matches[i].score < 0 ? name : name + " " + ofToString(matches[i].score, 2);
         }
@@ -297,6 +323,7 @@ void ofApp::keyPressed(int key)
     else if (key == ' ' && mode == InputMode::Video)
     {
         video.setPaused(!video.isPaused());
+        ofLogNotice("facerec") << sourceName << (video.isPaused() ? ": paused" : ": resumed");
     }
 }
 
@@ -304,6 +331,7 @@ void ofApp::dragEvent(ofDragInfo dragInfo)
 {
     if (!dragInfo.files.empty())
     {
+        ofLogNotice("facerec") << "dragged path " << dragInfo.files.front();
         openPath(dragInfo.files.front());
     }
 }
@@ -328,8 +356,10 @@ void ofApp::onOpenVideo()
 
 void ofApp::loadGallery(const std::string &path)
 {
-    recognizer.loadGallery(path, detector);
-    // a still image keeps its overlays until re-detected, so refresh them
+    int embeddings = recognizer.loadGallery(path, detector);
+    ofLogNotice("facerec") << "gallery reload finished with " << embeddings << " embedding(s)";
+    // A still image keeps its existing overlay until reprocessed, so refresh
+    // immediately after the gallery changes.
     refreshStillImage();
 }
 
@@ -350,6 +380,7 @@ void ofApp::onWebcamToggle(bool &on)
         {
             stopCurrentSource();
             status = "Webcam off. Open an image or video, or turn the webcam back on.";
+            ofLogNotice("facerec") << "webcam stopped";
         }
         return;
     }
@@ -359,17 +390,22 @@ void ofApp::onWebcamToggle(bool &on)
     if (!grabber.isInitialized())
     {
         status = "Could not open the webcam.";
+        ofLogError("facerec") << status;
         webcamOn.setWithoutEventNotifications(false);
         return;
     }
     mode = InputMode::Webcam;
     sourceName = "webcam";
+    status.clear();
+    lastLogMillis = 0;
+    ofLogNotice("facerec") << "webcam started at 1280x720";
 }
 
 void ofApp::onScoreThreshold(float &value)
 {
     detector.setScoreThreshold(value);
-    // video/webcam pick the new threshold up on their next frame; a still
-    // image has to be re-detected explicitly
+    ofLogNotice("facerec") << "detector threshold changed to " << ofToString(value, 2);
+    // Live sources pick the new threshold up on the next frame. Still images
+    // have to be reprocessed explicitly because their last frame is cached.
     refreshStillImage();
 }
