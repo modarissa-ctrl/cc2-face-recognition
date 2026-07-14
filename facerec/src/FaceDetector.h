@@ -18,26 +18,32 @@
  * @brief Number of facial landmarks produced by YuNet for each detection.
  */
 inline constexpr int kNumLandmarks = 5;
+
 /**
  * @brief Column index of the face-box left coordinate in a YuNet row.
  */
 inline constexpr int kBoxXIndex = 0;
+
 /**
  * @brief Column index of the face-box top coordinate in a YuNet row.
  */
 inline constexpr int kBoxYIndex = 1;
+
 /**
  * @brief Column index of the face-box width in a YuNet row.
  */
 inline constexpr int kBoxWidthIndex = 2;
+
 /**
  * @brief Column index of the face-box height in a YuNet row.
  */
 inline constexpr int kBoxHeightIndex = 3;
+
 /**
  * @brief Column index of the first landmark x coordinate in a YuNet row.
  */
 inline constexpr int kLandmarkOffset = 4;
+
 /**
  * @brief Total number of float columns in one YuNet detection row.
  *
@@ -45,6 +51,7 @@ inline constexpr int kLandmarkOffset = 4;
  * [x, y, w, h, (landmark x, landmark y) * 5, score]
  */
 inline constexpr int kYunetRowSize = kLandmarkOffset + 2 * kNumLandmarks + 1;
+
 /**
  * @brief Column index of the confidence score in a YuNet row.
  */
@@ -59,6 +66,7 @@ struct FaceDetection
      * @brief Bounding rectangle of the detected face in pixels.
      */
     ofRectangle box;
+
     /**
      * @brief Facial landmarks in YuNet order.
      *
@@ -66,6 +74,7 @@ struct FaceDetection
      * left mouth corner.
      */
     std::array<glm::vec2, kNumLandmarks> landmarks;
+
     /**
      * @brief Detector confidence in the range reported by YuNet.
      */

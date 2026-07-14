@@ -16,6 +16,20 @@ namespace
  */
 const std::vector<std::string> kVideoExtensions = {"mp4", "mov", "m4v", "avi", "mpg", "mpeg", "mkv", "webm"};
 
+constexpr float kOverlayLineWidth = 2.0f;
+constexpr float kLandmarkRadius = 3.0f;
+constexpr float kOverlayLabelOffsetY = 6.0f;
+constexpr int kOverlayRecognizedR = 80;
+constexpr int kOverlayRecognizedG = 180;
+constexpr int kOverlayRecognizedB = 255;
+constexpr int kOverlayUnknownR = 80;
+constexpr int kOverlayUnknownG = 255;
+constexpr int kOverlayUnknownB = 120;
+
+constexpr float kHudMarginLeft = 20.0f;
+constexpr float kHudFacesBottomOffset = 44.0f;
+constexpr float kHudInfoBottomOffset = 20.0f;
+
 /**
  * @brief Decide whether a path should be treated as a video source.
  * @param path Candidate media path.
@@ -237,6 +251,16 @@ void ofApp::draw()
     float offsetX = (ofGetWidth() - srcW * scale) / 2;
     float offsetY = (ofGetHeight() - srcH * scale) / 2;
 
+    drawSource(offsetX, offsetY, srcW, srcH, scale);
+    drawFaceOverlays(offsetX, offsetY, scale);
+    drawHud();
+
+    gui.draw();
+}
+
+void ofApp::drawSource(float offsetX, float offsetY, float srcW, float srcH, float scale)
+{
+    // Render whichever media source is currently active into the shared viewport.
     ofSetColor(255);
     if (mode == InputMode::Image)
     {
@@ -250,7 +274,10 @@ void ofApp::draw()
     {
         grabber.draw(offsetX, offsetY, srcW * scale, srcH * scale);
     }
+}
 
+void ofApp::drawFaceOverlays(float offsetX, float offsetY, float scale)
+{
     for (size_t i = 0; i < faces.size(); i++)
     {
         const auto &face = faces[i];
@@ -263,21 +290,22 @@ void ofApp::draw()
         bool recognized = i < matches.size() && matches[i].score >= matchThreshold;
 
         ofPushStyle();
+        // Keep overlay-only style changes from leaking into later draw calls.
         ofNoFill();
-        ofSetLineWidth(2);
+        ofSetLineWidth(kOverlayLineWidth);
         if (recognized)
         {
-            ofSetColor(80, 180, 255);
+            ofSetColor(kOverlayRecognizedR, kOverlayRecognizedG, kOverlayRecognizedB);
         }
         else
         {
-            ofSetColor(80, 255, 120);
+            ofSetColor(kOverlayUnknownR, kOverlayUnknownG, kOverlayUnknownB);
         }
         ofDrawRectangle(x, y, face.box.width * scale, face.box.height * scale);
         ofFill();
         for (const auto &lm : face.landmarks)
         {
-            ofDrawCircle(offsetX + lm.x * scale, offsetY + lm.y * scale, 3);
+            ofDrawCircle(offsetX + lm.x * scale, offsetY + lm.y * scale, kLandmarkRadius);
         }
         ofPopStyle();
 
@@ -289,10 +317,16 @@ void ofApp::draw()
             std::string name = recognized ? matches[i].name : "unknown";
             label = matches[i].score < 0 ? name : name + " " + ofToString(matches[i].score, 2);
         }
-        ofDrawBitmapStringHighlight(label, x, y - 6);
+        // Draw labels just above each face box for quick identity scanning.
+        ofDrawBitmapStringHighlight(label, x, y - kOverlayLabelOffsetY);
     }
+}
 
-    ofDrawBitmapStringHighlight("Faces: " + ofToString(faces.size()), 20, ofGetHeight() - 44);
+void ofApp::drawHud()
+{
+    // Bottom-left HUD keeps frame stats readable regardless of source type.
+    ofDrawBitmapStringHighlight("Faces: " + ofToString(faces.size()), kHudMarginLeft,
+                                ofGetHeight() - kHudFacesBottomOffset);
 
     std::string info = sourceName + "  (" + ofToString(detectMillis, 1) + " ms/frame";
     if (mode != InputMode::Image)
@@ -305,9 +339,7 @@ void ofApp::draw()
         info += video.isPaused() ? ", paused — space resumes" : ", space pauses";
     }
     info += ")";
-    ofDrawBitmapStringHighlight(info, 20, ofGetHeight() - 20);
-
-    gui.draw();
+    ofDrawBitmapStringHighlight(info, kHudMarginLeft, ofGetHeight() - kHudInfoBottomOffset);
 }
 
 void ofApp::keyPressed(int key)

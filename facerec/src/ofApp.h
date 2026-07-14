@@ -30,19 +30,23 @@ class ofApp : public ofBaseApp
      * @brief Initialize models, GUI controls, and optional startup media.
      */
     void setup() override;
+
     /**
      * @brief Advance the active source and run per-frame detection.
      */
     void update() override;
+
     /**
      * @brief Draw the active source, overlays, performance text, and GUI.
      */
     void draw() override;
+
     /**
      * @brief Handle keyboard shortcuts such as opening files or pausing video.
      * @param key Pressed key code.
      */
     void keyPressed(int key) override;
+
     /**
      * @brief Handle drag-and-drop media input.
      * @param dragInfo Dropped file metadata from openFrameworks.
@@ -66,28 +70,30 @@ class ofApp : public ofBaseApp
         Webcam
     };
 
-    FaceDetector detector;
-    FaceRecognizer recognizer;
-    InputMode mode = InputMode::None;
+    FaceDetector detector;            //< YuNet model instance used for face detection.
+    FaceRecognizer recognizer;        //< SFace model instance used for face recognition.
+    InputMode mode = InputMode::None; //< Current source type feeding frames into the pipeline.
 
-    ofImage image;
-    ofVideoPlayer video;
-    ofVideoGrabber grabber;
-    std::string sourceName;
+    ofImage image;          //< Loaded still image.
+    ofVideoPlayer video;    //< Loaded video source.
+    ofVideoGrabber grabber; //< Live webcam feed.
+    std::string sourceName; //< Name of the current media source.
 
-    std::vector<FaceDetection> faces;
-    std::vector<FaceMatch> matches;
-    float detectMillis = 0.0f;
-    uint64_t lastLogMillis = 0;
-    std::string status;
+    std::vector<FaceDetection> faces; //< Detected faces in the current frame.
+    std::vector<FaceMatch> matches;   //< Recognition results for the detected faces in the current frame.
+    float detectMillis = 0.0f;        //< Time taken for the last detection in milliseconds.
+    uint64_t lastLogMillis = 0;       //< Timestamp of the last log message.
+    std::string status;               //< Current status message.
 
-    ofxPanel gui;
-    ofxButton openImageButton;
-    ofxButton openVideoButton;
-    ofxButton loadGalleryButton;
-    ofParameter<bool> webcamOn{"webcam", false};
-    ofParameter<float> scoreThreshold{"conf threshold", 0.6f, 0.05f, 0.95f};
-    ofParameter<float> matchThreshold{"match threshold", FaceRecognizer::kDefaultMatchThreshold, 0.0f, 1.0f};
+    ofxPanel gui;                                //< GUI panel containing all controls.
+    ofxButton openImageButton;                   //< Button to open an image file.
+    ofxButton openVideoButton;                   //< Button to open a video file.
+    ofxButton loadGalleryButton;                 //< Button to load a face recognition gallery.
+    ofParameter<bool> webcamOn{"webcam", false}; //< Toggle for webcam input.
+    ofParameter<float> scoreThreshold{"conf threshold", 0.6f, 0.05f,
+                                      0.95f}; //< Confidence threshold for face detection.
+    ofParameter<float> matchThreshold{"match threshold", FaceRecognizer::kDefaultMatchThreshold, 0.0f,
+                                      1.0f}; //< Threshold for face recognition matches.
 
     /**
      * @brief Open a path and dispatch it to image or video loading.
@@ -95,27 +101,32 @@ class ofApp : public ofBaseApp
      * @return `true` when the source was opened successfully.
      */
     bool openPath(const std::string &path);
+
     /**
      * @brief Load a still image and immediately process it.
      * @param path Image file path.
      * @return `true` when the image was loaded successfully.
      */
     bool loadImage(const std::string &path);
+
     /**
      * @brief Load a video source and start playback.
      * @param path Video file path.
      * @return `true` when the video backend accepted the file.
      */
     bool loadVideo(const std::string &path);
+
     /**
      * @brief Tear down the currently active media source and reset state.
      */
     void stopCurrentSource();
+
     /**
      * @brief Run detection and optional recognition on one frame.
      * @param pixels Frame pixels from the active source.
      */
     void detectFrame(const ofPixels &pixels);
+
     /**
      * @brief Load or reload the recognition gallery.
      * @param path Folder containing one subfolder per person.
@@ -130,6 +141,7 @@ class ofApp : public ofBaseApp
     {
         return mode == InputMode::Image && image.isAllocated();
     }
+
     /**
      * @brief Re-run detection for the current still image if one is active.
      */
@@ -142,22 +154,49 @@ class ofApp : public ofBaseApp
     std::pair<float, float> sourceSize() const;
 
     /**
+     * @brief Draw the active image, video, or webcam source at the provided bounds.
+     * @param offsetX Horizontal destination offset in window coordinates.
+     * @param offsetY Vertical destination offset in window coordinates.
+     * @param srcW Source width in pixels.
+     * @param srcH Source height in pixels.
+     * @param scale Source-to-window scale factor.
+     */
+    void drawSource(float offsetX, float offsetY, float srcW, float srcH, float scale);
+
+    /**
+     * @brief Draw detection boxes, landmarks, and identity labels.
+     * @param offsetX Horizontal destination offset in window coordinates.
+     * @param offsetY Vertical destination offset in window coordinates.
+     * @param scale Source-to-window scale factor.
+     */
+    void drawFaceOverlays(float offsetX, float offsetY, float scale);
+
+    /**
+     * @brief Draw source, performance, and gallery status text.
+     */
+    void drawHud();
+
+    /**
      * @brief GUI callback for opening an image file.
      */
     void onOpenImage();
+
     /**
      * @brief GUI callback for opening a video file.
      */
     void onOpenVideo();
+
     /**
      * @brief GUI callback for choosing a gallery directory.
      */
     void onLoadGallery();
+
     /**
      * @brief GUI callback for enabling or disabling the webcam.
      * @param on New webcam toggle state.
      */
     void onWebcamToggle(bool &on);
+
     /**
      * @brief GUI callback for updating the YuNet confidence threshold.
      * @param value New threshold value.

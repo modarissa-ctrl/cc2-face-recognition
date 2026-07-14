@@ -26,6 +26,7 @@ struct FaceMatch
      * @brief Closest gallery identity, or empty when no embedding was produced.
      */
     std::string name;
+
     /**
      * @brief Cosine similarity score where larger values mean closer matches.
      */
@@ -88,7 +89,7 @@ class FaceRecognizer
      */
     int personCount() const
     {
-        return numPersons;
+        return numPersons; //< Count of people with at least one usable embedding.
     }
 
     /**
@@ -105,8 +106,8 @@ class FaceRecognizer
      */
     struct Entry
     {
-        std::string name;
-        cv::Mat feature;
+        std::string name; //< Person identity label.
+        cv::Mat feature;  //< 1x128 float embedding produced by SFace.
     };
 
     /**
@@ -117,7 +118,7 @@ class FaceRecognizer
      */
     cv::Mat embed(const cv::Mat &bgr, const FaceDetection &face);
 
-    cv::Ptr<cv::FaceRecognizerSF> recognizer;
-    std::vector<Entry> entries;
-    int numPersons = 0;
+    cv::Ptr<cv::FaceRecognizerSF> recognizer; //< SFace model instance used for alignment and embedding.
+    std::vector<Entry> entries;               //< Gallery entries containing labeled embeddings.
+    int numPersons = 0;                       //< Number of distinct people in the gallery.
 };
