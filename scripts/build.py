@@ -71,12 +71,31 @@ def build_windows(config):
     return exe
 
 
+def clear_macos_quarantine(binary_path):
+    # binary_path is .../<AppName>.app/Contents/MacOS/<AppName>
+    app_bundle = binary_path.parents[2]
+    if app_bundle.suffix != ".app":
+        return
+    if not shutil.which("xattr"):
+        return
+    result = subprocess.run(
+        ["xattr", "-dr", "com.apple.quarantine", str(app_bundle)],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode == 0:
+        log(f"cleared quarantine on {app_bundle}")
+    elif "No such xattr" not in (result.stderr or ""):
+        log(f"warning: could not clear quarantine on {app_bundle}: {result.stderr.strip()}")
+
+
 def main():
     args = set(sys.argv[1:])
     config = "Debug" if "--debug" in args else "Release"
 
     if sys.platform == "darwin":
         binary = build_macos(config)
+        clear_macos_quarantine(binary)
     elif sys.platform in ("win32", "cygwin", "msys"):
         binary = build_windows(config)
     else:
