@@ -46,7 +46,7 @@ bool isVideoPath(const std::string &path)
 
 void ofApp::setup()
 {
-    ofSetWindowTitle("facerec — M3 recognition");
+    ofSetWindowTitle("facerec — M5 tracking");
 
     std::string modelPath = ofToDataPath(AppPaths::kYunetModel);
     bool loaded = detector.setup(modelPath, scoreThreshold);
@@ -68,6 +68,7 @@ void ofApp::setup()
     gui.add(openImageButton.setup("open image..."));
     gui.add(openVideoButton.setup("open video..."));
     gui.add(webcamOn);
+    gui.add(trackingOn);
     gui.add(scoreThreshold);
     gui.add(matchThreshold);
     gui.add(loadGalleryButton.setup("load gallery..."));
@@ -76,6 +77,7 @@ void ofApp::setup()
     loadGalleryButton.addListener(this, &ofApp::onLoadGallery);
     webcamOn.addListener(this, &ofApp::onWebcamToggle);
     scoreThreshold.addListener(this, &ofApp::onScoreThreshold);
+    trackingOn.addListener(this, &ofApp::onTrackingToggle);
 
     // a plain (non-flag) argument is an image or video to open at startup
     for (const auto &arg : args)
@@ -113,6 +115,8 @@ void ofApp::stopCurrentSource()
     mode = InputMode::None;
     faces.clear();
     matches.clear();
+    trackIds.clear();
+    tracker.reset();
     detectMillis = 0.0f;
 }
 
@@ -181,8 +185,14 @@ void ofApp::update()
         if (now - lastLogMillis >= 1000)
         {
             lastLogMillis = now;
-            ofLogNotice("facerec") << sourceName << ": " << faces.size() << " face(s), " << ofToString(detectMillis, 1)
-                                   << " ms/frame, " << ofToString(ofGetFrameRate(), 0) << " fps";
+            std::string ids;
+            for (int id : trackIds)
+            {
+                ids += " #" + ofToString(id);
+            }
+            ofLogNotice("facerec") << sourceName << ": " << faces.size() << " face(s)" << ids << ", "
+                                   << ofToString(detectMillis, 1) << " ms/frame, " << ofToString(ofGetFrameRate(), 0)
+                                   << " fps";
         }
     }
 }
@@ -204,6 +214,20 @@ void ofApp::detectFrame(const ofPixels &pixels)
     cv::Mat bgr = toBgr(pixels);
     faces = detector.detect(bgr);
     matches = recognizer.hasGallery() ? recognizer.identify(bgr, faces) : std::vector<FaceMatch>();
+    // Tracking only makes sense for temporal sources; a still image is a
+    // single frame, so IDs would be meaningless there.
+    if (trackingOn && (mode == InputMode::Video || mode == InputMode::Webcam))
+    {
+        trackIds = tracker.update(faces);
+    }
+    else
+    {
+        // The tracker is already reset on every transition into a non-tracking
+        // state (source change in stopCurrentSource, toggle in
+        // onTrackingToggle), so no stale track state can survive here — just
+        // drop the now-meaningless labels for this frame.
+        trackIds.clear();
+    }
     float millis = (ofGetElapsedTimeMicros() - start) / 1000.0f;
     // Smooth only the UI-facing latency number so the overlay stays readable
     // while the underlying detections remain frame-accurate.
@@ -317,6 +341,12 @@ void ofApp::drawFaceOverlays(float offsetX, float offsetY, float scale)
             // there is no meaningful similarity number to render.
             std::string name = recognized ? matches[i].name : "unknown";
             label = matches[i].score < 0 ? name : name + " " + ofToString(matches[i].score, 2);
+        }
+        if (i < trackIds.size())
+        {
+            // Stable per-face ID from the tracker, prepended so identity swaps
+            // between frames are easy to spot during video playback.
+            label = "#" + ofToString(trackIds[i]) + " " + label;
         }
         // Draw labels just above each face box for quick identity scanning.
         ofDrawBitmapStringHighlight(label, x, y - kOverlayLabelOffsetY);
@@ -441,4 +471,14 @@ void ofApp::onScoreThreshold(float &value)
     // Live sources pick the new threshold up on the next frame. Still images
     // have to be reprocessed explicitly because their last frame is cached.
     refreshStillImage();
+}
+
+void ofApp::onTrackingToggle(bool &on)
+{
+    // Restart from a clean slate in both directions so stale IDs never
+    // linger on screen (e.g. while a video is paused) and re-enabling starts
+    // a fresh numbering.
+    tracker.reset();
+    trackIds.clear();
+    ofLogNotice("facerec") << (on ? "tracking enabled" : "tracking disabled");
 }
