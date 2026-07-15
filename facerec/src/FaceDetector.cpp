@@ -11,11 +11,16 @@
 
 #include "ofxCv.h"
 
+namespace
+{
+const cv::Size kDefaultInputSize{320, 320}; //< Default input size for YuNet inference, in pixels.
+}
+
 bool FaceDetector::setup(const std::string &modelPath, float scoreThreshold)
 {
     try
     {
-        detector = cv::FaceDetectorYN::create(modelPath, "", cv::Size(320, 320), scoreThreshold);
+        detector = cv::FaceDetectorYN::create(modelPath, "", kDefaultInputSize, scoreThreshold);
         ofLogNotice("FaceDetector") << "loaded YuNet model from " << modelPath << " with threshold "
                                     << ofToString(scoreThreshold, 2);
     }
