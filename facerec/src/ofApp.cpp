@@ -4,6 +4,7 @@
  */
 
 #include "ofApp.h"
+#include "AppPaths.h"
 
 #include <algorithm>
 #include <utility>
@@ -47,20 +48,20 @@ void ofApp::setup()
 {
     ofSetWindowTitle("facerec — M3 recognition");
 
-    std::string modelPath = ofToDataPath("models/face_detection_yunet_2023mar.onnx");
+    std::string modelPath = ofToDataPath(AppPaths::kYunetModel);
     bool loaded = detector.setup(modelPath, scoreThreshold);
 
     status = loaded ? "Open an image or video (O key, drag & drop, or the panel), or turn on the webcam."
                     : "FAILED to load the YuNet model — run scripts/bootstrap.py first.";
 
-    if (!recognizer.setup(ofToDataPath("models/face_recognition_sface_2021dec.onnx")))
+    if (!recognizer.setup(ofToDataPath(AppPaths::kSfaceModel)))
     {
         ofLogError("facerec") << "SFace model missing — recognition disabled, "
                                  "run scripts/bootstrap.py first";
     }
     else
     {
-        recognizer.loadGallery(ofToDataPath("gallery"), detector);
+        recognizer.loadGallery(ofToDataPath(AppPaths::kGalleryDir), detector);
     }
 
     gui.setup("facerec");

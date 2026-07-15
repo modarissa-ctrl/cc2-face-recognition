@@ -5,6 +5,7 @@
 
 #include "ofMain.h"
 #include "ofApp.h"
+#include "AppPaths.h"
 #include "FaceDetector.h"
 #include "FaceRecognizer.h"
 
@@ -18,22 +19,13 @@ namespace
 {
 
 /**
- * @brief Relative path to the YuNet detector model inside `bin/data`.
- */
-const char *kYunetModel = "models/face_detection_yunet_2023mar.onnx";
-/**
- * @brief Relative path to the SFace recognizer model inside `bin/data`.
- */
-const char *kSfaceModel = "models/face_recognition_sface_2021dec.onnx";
-
-/**
  * @brief Set up the headless YuNet detector.
  * @param detector Reference to the FaceDetector instance.
  * @return `true` if the detector was set up successfully.
  */
 bool setupHeadlessDetector(FaceDetector &detector)
 {
-    if (!detector.setup(ofToDataPath(kYunetModel)))
+    if (!detector.setup(ofToDataPath(AppPaths::kYunetModel)))
     {
         std::fprintf(stderr, "could not load the YuNet model — run scripts/bootstrap.py first\n");
         return false;
@@ -48,7 +40,7 @@ bool setupHeadlessDetector(FaceDetector &detector)
  */
 bool setupHeadlessRecognizer(FaceRecognizer &recognizer)
 {
-    if (!recognizer.setup(ofToDataPath(kSfaceModel)))
+    if (!recognizer.setup(ofToDataPath(AppPaths::kSfaceModel)))
     {
         std::fprintf(stderr, "could not load the SFace model — run scripts/bootstrap.py first\n");
         return false;
@@ -91,8 +83,8 @@ int runSelftest()
     int cvVersion = CV_VERSION_MAJOR * 10000 + CV_VERSION_MINOR * 100 + CV_VERSION_REVISION;
     check(cvVersion >= 40504, "OpenCV >= 4.5.4 (required by YuNet)");
 
-    std::string yunetPath = ofToDataPath(kYunetModel);
-    std::string sfacePath = ofToDataPath(kSfaceModel);
+    std::string yunetPath = ofToDataPath(AppPaths::kYunetModel);
+    std::string sfacePath = ofToDataPath(AppPaths::kSfaceModel);
     check(ofFile::doesFileExist(yunetPath), "YuNet model file in data/models");
     check(ofFile::doesFileExist(sfacePath), "SFace model file in data/models");
 
@@ -162,7 +154,7 @@ int runHeadlessIdentify(const std::string &path)
     {
         return 1;
     }
-    if (recognizer.loadGallery(ofToDataPath("gallery"), detector) == 0)
+    if (recognizer.loadGallery(ofToDataPath(AppPaths::kGalleryDir), detector) == 0)
     {
         std::fprintf(stderr, "no usable gallery at data/gallery — run scripts/bootstrap.py first\n");
         return 1;
