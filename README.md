@@ -5,6 +5,7 @@ This repository contains a cross-platform (macOS + Windows) openFrameworks app i
 - face detection (YuNet)
 - face recognition (SFace embeddings vs gallery)
 - image, video, and webcam input modes
+- face tracking (own IoU/centroid tracker: stable per-face IDs on video/webcam)
 
 The workflow is:
 
@@ -133,6 +134,7 @@ Inside the app:
 
 - open image/video from the GUI buttons or drag and drop
 - toggle webcam mode in the panel
+- toggle face tracking — each face on video/webcam gets a stable `#id` label
 - tune detection score threshold and recognition match threshold
 - load a custom gallery from the panel
 
@@ -163,6 +165,7 @@ What it verifies:
 - OpenCV version is >= 4.5.4
 - YuNet and SFace model files exist in data/models
 - YuNet detector and SFace recognizer can be instantiated
+- face tracker logic on synthetic detections (stable IDs, position-based matching, dropout tolerance)
 
 Exit code:
 
