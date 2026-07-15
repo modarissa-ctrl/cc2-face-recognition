@@ -8,9 +8,11 @@
 #include "AppPaths.h"
 #include "FaceDetector.h"
 #include "FaceRecognizer.h"
+#include "FaceTracker.h"
 
 #include <algorithm>
 #include <cstdio>
+#include <functional>
 #include <iterator>
 #include <string>
 #include <vector>
@@ -65,7 +67,68 @@ bool loadHeadlessImage(const std::string &path, ofPixels &pixels)
 }
 
 /**
- * @brief Run dependency and model self-checks without creating a window.
+ * @brief Exercise the face tracker on synthetic detections.
+ * @param check Callback that records one named pass/fail result.
+ *
+ * Runs entirely on hand-made bounding boxes, so it needs neither model files
+ * nor a display and verifies the pure association logic: stable IDs under
+ * small motion, position-based (not index-based) matching, dropout
+ * tolerance, and fresh IDs for unrelated faces.
+ */
+void selftestTracker(const std::function<void(bool, const std::string &)> &check)
+{
+    auto det = [](float x, float y) {
+        FaceDetection d;
+        d.box = ofRectangle(x, y, 100, 100);
+        return d;
+    };
+
+    FaceTracker tracker;
+    auto first = tracker.update({det(100, 100), det(400, 100)});
+    check(first.size() == 2 && first[0] > 0 && first[1] > 0 && first[0] != first[1],
+          "tracker assigns distinct ids to new faces");
+
+    auto moved = tracker.update({det(110, 105), det(395, 100)});
+    check(moved == first, "tracker keeps ids across small motion");
+
+    auto swapped = tracker.update({det(395, 100), det(115, 105)});
+    check(swapped.size() == 2 && swapped[0] == first[1] && swapped[1] == first[0],
+          "tracker ids follow position, not detection order");
+
+    // One face disappears for a few frames (within the grace period), then
+    // returns close to where it was last seen.
+    for (int i = 0; i < FaceTracker::kMaxMissedFrames / 3; i++)
+    {
+        tracker.update({det(395, 100)});
+    }
+    auto returned = tracker.update({det(130, 110), det(395, 100)});
+    check(returned.size() == 2 && returned[0] == first[0], "tracker keeps an id through a short dropout");
+
+    auto stranger = tracker.update({det(800, 500)});
+    check(stranger.size() == 1 && stranger[0] != first[0] && stranger[0] != first[1],
+          "tracker gives a distant new face a fresh id");
+
+    // Isolated centroid pass: a 70 px jump on a 100 px box drops IoU below
+    // kMinIou (overlap 30x100 -> IoU ~0.18) yet keeps the center within the
+    // gate (distance 70 < 0.75 * 100), so only the second (proximity) pass can
+    // preserve the id here.
+    FaceTracker jumpTracker;
+    int jumpId = jumpTracker.update({det(100, 100)})[0];
+    auto jumped = jumpTracker.update({det(170, 100)});
+    check(jumped.size() == 1 && jumped[0] == jumpId, "tracker centroid pass links a fast jump that breaks overlap");
+
+    // Beyond the grace period the track is retired, so a face returning to the
+    // exact same spot must be issued a brand-new id rather than the stale one.
+    for (int i = 0; i < FaceTracker::kMaxMissedFrames + 1; i++)
+    {
+        jumpTracker.update({});
+    }
+    auto reappeared = jumpTracker.update({det(170, 100)});
+    check(reappeared.size() == 1 && reappeared[0] != jumpId, "tracker retires an id after the grace period");
+}
+
+/**
+ * @brief Run dependency, model, and tracker self-checks without creating a window.
  * @return Process exit code compatible with CI usage.
  */
 int runSelftest()
@@ -99,6 +162,8 @@ int runSelftest()
     {
         check(false, std::string("cv::FaceRecognizerSF loads the SFace model — ") + e.what());
     }
+
+    selftestTracker(check);
 
     ofLogNotice("facerec") << (allPassed ? "selftest passed" : "selftest FAILED");
     return allPassed ? 0 : 1;
