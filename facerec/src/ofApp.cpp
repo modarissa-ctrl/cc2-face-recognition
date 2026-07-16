@@ -46,7 +46,7 @@ bool isVideoPath(const std::string &path)
 
 void ofApp::setup()
 {
-    ofSetWindowTitle("facerec — M5 tracking");
+    ofSetWindowTitle("facerec — M6 liveness");
 
     std::string modelPath = ofToDataPath(AppPaths::kYunetModel);
     bool loaded = detector.setup(modelPath, scoreThreshold);
@@ -69,6 +69,7 @@ void ofApp::setup()
     gui.add(openVideoButton.setup("open video..."));
     gui.add(webcamOn);
     gui.add(trackingOn);
+    gui.add(livenessOn);
     gui.add(scoreThreshold);
     gui.add(matchThreshold);
     gui.add(loadGalleryButton.setup("load gallery..."));
@@ -78,6 +79,7 @@ void ofApp::setup()
     webcamOn.addListener(this, &ofApp::onWebcamToggle);
     scoreThreshold.addListener(this, &ofApp::onScoreThreshold);
     trackingOn.addListener(this, &ofApp::onTrackingToggle);
+    livenessOn.addListener(this, &ofApp::onLivenessToggle);
 
     // a plain (non-flag) argument is an image or video to open at startup
     for (const auto &arg : args)
@@ -117,6 +119,8 @@ void ofApp::stopCurrentSource()
     matches.clear();
     trackIds.clear();
     tracker.reset();
+    liveStatus.clear();
+    liveness.reset();
     detectMillis = 0.0f;
 }
 
@@ -186,9 +190,24 @@ void ofApp::update()
         {
             lastLogMillis = now;
             std::string ids;
-            for (int id : trackIds)
+            for (size_t i = 0; i < trackIds.size(); i++)
             {
-                ids += " #" + ofToString(id);
+                ids += " #" + ofToString(trackIds[i]);
+                if (i < liveStatus.size())
+                {
+                    // Verdict and blink/mouth counts per track keep video and
+                    // webcam runs observable in the console, mirroring the
+                    // on-screen flags.
+                    if (liveStatus[i].verdict == LivenessDetector::Verdict::Live)
+                    {
+                        ids += ":LIVE(" + ofToString(liveStatus[i].blinkCount) + "b/" +
+                               ofToString(liveStatus[i].mouthMovementCount) + "m)";
+                    }
+                    else if (liveStatus[i].verdict == LivenessDetector::Verdict::NoActivity)
+                    {
+                        ids += ":PHOTO?";
+                    }
+                }
             }
             ofLogNotice("facerec") << sourceName << ": " << faces.size() << " face(s)" << ids << ", "
                                    << ofToString(detectMillis, 1) << " ms/frame, " << ofToString(ofGetFrameRate(), 0)
@@ -227,6 +246,17 @@ void ofApp::detectFrame(const ofPixels &pixels)
         // onTrackingToggle), so no stale track state can survive here — just
         // drop the now-meaningless labels for this frame.
         trackIds.clear();
+    }
+    // Liveness rides on the tracker: blink history only means something when
+    // it can be pinned to a stable face ID, so it is active exactly when
+    // tracking produced IDs for this frame (temporal source + tracking on).
+    if (livenessOn && !trackIds.empty())
+    {
+        liveStatus = liveness.update(bgr, faces, trackIds, ofGetElapsedTimef());
+    }
+    else
+    {
+        liveStatus.clear();
     }
     float millis = (ofGetElapsedTimeMicros() - start) / 1000.0f;
     // Smooth only the UI-facing latency number so the overlay stays readable
@@ -347,6 +377,20 @@ void ofApp::drawFaceOverlays(float offsetX, float offsetY, float scale)
             // Stable per-face ID from the tracker, prepended so identity swaps
             // between frames are easy to spot during video playback.
             label = "#" + ofToString(trackIds[i]) + " " + label;
+        }
+        if (i < liveStatus.size())
+        {
+            // Liveness flag (blink or mouth movement); nothing is appended
+            // while the verdict is still pending so the label only claims what
+            // has actually been observed.
+            if (liveStatus[i].verdict == LivenessDetector::Verdict::Live)
+            {
+                label += " LIVE";
+            }
+            else if (liveStatus[i].verdict == LivenessDetector::Verdict::NoActivity)
+            {
+                label += " PHOTO?";
+            }
         }
         // Draw labels just above each face box for quick identity scanning.
         ofDrawBitmapStringHighlight(label, x, y - kOverlayLabelOffsetY);
@@ -480,5 +524,18 @@ void ofApp::onTrackingToggle(bool &on)
     // a fresh numbering.
     tracker.reset();
     trackIds.clear();
+    // The tracker restarts ID numbering from 1, so blink histories keyed by
+    // the old IDs would be inherited by unrelated faces — drop them too.
+    liveness.reset();
+    liveStatus.clear();
     ofLogNotice("facerec") << (on ? "tracking enabled" : "tracking disabled");
+}
+
+void ofApp::onLivenessToggle(bool &on)
+{
+    // Blink/mouth evidence collected earlier would be stale by the time
+    // liveness is re-enabled, so both directions restart the observation.
+    liveness.reset();
+    liveStatus.clear();
+    ofLogNotice("facerec") << (on ? "liveness enabled" : "liveness disabled");
 }

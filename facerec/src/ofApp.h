@@ -13,14 +13,16 @@
 #include "FaceDetector.h"
 #include "FaceRecognizer.h"
 #include "FaceTracker.h"
+#include "LivenessDetector.h"
 
 /**
  * @brief Interactive face recognition application.
  *
  * The app supports still images, video playback, and a live webcam. Frames are
  * detected with YuNet, optionally recognized with SFace against a folder-based
- * gallery, tracked across video/webcam frames with stable per-face IDs, and
- * then rendered with debugging overlays and timing information.
+ * gallery, tracked across video/webcam frames with stable per-face IDs,
+ * checked for liveness via blinks and mouth movement (LIVE / PHOTO? flags),
+ * and then rendered with debugging overlays and timing information.
  *
  * Headless utilities such as `--selftest`, `--detect`, and `--identify` are
  * handled in `main()` before any OpenGL window is created.
@@ -75,6 +77,7 @@ class ofApp : public ofBaseApp
     FaceDetector detector;            //< YuNet model instance used for face detection.
     FaceRecognizer recognizer;        //< SFace model instance used for face recognition.
     FaceTracker tracker;              //< Frame-to-frame tracker assigning stable face IDs.
+    LivenessDetector liveness;        //< Blink/mouth-movement live-photo classifier for tracked faces.
     InputMode mode = InputMode::None; //< Current source type feeding frames into the pipeline.
 
     ofImage image;          //< Loaded still image.
@@ -85,6 +88,7 @@ class ofApp : public ofBaseApp
     std::vector<FaceDetection> faces; //< Detected faces in the current frame.
     std::vector<FaceMatch> matches;   //< Recognition results for the detected faces in the current frame.
     std::vector<int> trackIds;        //< Stable track IDs for the detected faces, empty when not tracking.
+    std::vector<LivenessDetector::Status> liveStatus; //< Liveness verdicts per face, empty when liveness is off.
     float detectMillis = 0.0f;        //< Time taken for the last detection in milliseconds.
     uint64_t lastLogMillis = 0;       //< Timestamp of the last log message.
     std::string status;               //< Current status message.
@@ -95,6 +99,7 @@ class ofApp : public ofBaseApp
     ofxButton loadGalleryButton;                    //< Button to load a face recognition gallery.
     ofParameter<bool> webcamOn{"webcam", false};    //< Toggle for webcam input.
     ofParameter<bool> trackingOn{"tracking", true}; //< Toggle for stable face IDs on video/webcam.
+    ofParameter<bool> livenessOn{"liveness", true}; //< Toggle for blink/mouth LIVE-PHOTO? flags (needs tracking).
     ofParameter<float> scoreThreshold{"conf threshold", 0.6f, 0.05f,
                                       0.95f}; //< Confidence threshold for face detection.
     ofParameter<float> matchThreshold{"match threshold", FaceRecognizer::kDefaultMatchThreshold, 0.0f,
@@ -213,4 +218,10 @@ class ofApp : public ofBaseApp
      * @param on New tracking toggle state.
      */
     void onTrackingToggle(bool &on);
+
+    /**
+     * @brief GUI callback for enabling or disabling liveness detection.
+     * @param on New liveness toggle state.
+     */
+    void onLivenessToggle(bool &on);
 };
