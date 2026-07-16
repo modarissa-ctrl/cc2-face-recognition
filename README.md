@@ -6,6 +6,7 @@ This repository contains a cross-platform (macOS + Windows) openFrameworks app i
 - face recognition (SFace embeddings vs gallery)
 - image, video, and webcam input modes
 - face tracking (own IoU/centroid tracker: stable per-face IDs on video/webcam)
+- liveness detection (own blink + mouth-movement detection: LIVE / PHOTO? flag per tracked face)
 
 The workflow is:
 
@@ -135,8 +136,20 @@ Inside the app:
 - open image/video from the GUI buttons or drag and drop
 - toggle webcam mode in the panel
 - toggle face tracking — each face on video/webcam gets a stable `#id` label
+- toggle liveness — tracked faces earn a `LIVE` flag by blinking or moving
+  their mouth (yawn, talking), or a `PHOTO?` flag after ~7 s without either
+  (requires tracking to be on; nothing is shown while the verdict is pending)
 - tune detection score threshold and recognition match threshold
 - load a custom gallery from the panel
+
+### Liveness limitations
+
+Liveness is a demo of the blink/mouth-movement technique, not anti-spoofing:
+a replayed video of a blinking person passes, and a live person who stares
+motionlessly gets flagged `PHOTO?`. The signals are measured photometrically
+(dark-pixel fraction around the eyes and between the mouth corners), so they
+need a reasonably lit, reasonably sized face; heavy glasses glare or strong
+shadows can hide blinks.
 
 ---
 
@@ -166,6 +179,9 @@ What it verifies:
 - YuNet and SFace model files exist in data/models
 - YuNet detector and SFace recognizer can be instantiated
 - face tracker logic on synthetic detections (stable IDs, position-based matching, dropout tolerance)
+- blink and mouth-movement state machines on synthetic signals (dips/rises, noise and static-feature rejection)
+- photometric eye-openness and mouth-darkness measures on drawn patches
+- end-to-end liveness verdicts (LIVE for a blinking or yawning face, PHOTO? for a motionless one) on rendered frames with a fake clock
 
 Exit code:
 

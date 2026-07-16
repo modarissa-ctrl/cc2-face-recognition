@@ -35,7 +35,7 @@ A desktop application that detects human faces in images, video files, and a liv
 ### Stretch-goal techniques (chosen to be "own work" friendly)
 
 - **Face tracking:** own implementation of IoU/centroid matching — associate detections between consecutive frames by bounding-box overlap, assign stable IDs, tolerate short dropouts. Small, fully explainable algorithm written from scratch.
-- **Liveness detection:** blink-based. Fit eye landmarks (OpenCV Facemark/LBF or equivalent lightweight landmark model), compute Eye Aspect Ratio per frame, detect blinks; a face that never blinks within a time window is flagged as possibly a photo. The EAR logic and decision window are own code.
+- **Liveness detection:** blink- and mouth-movement-based. The originally considered OpenCV Facemark/LBF eyelid landmarks are not available (the bundled OpenCV ships without the `face` contrib module), so instead of a geometric Eye Aspect Ratio we measure the signals photometrically from YuNet's own landmarks: eye openness = dark-pixel fraction (iris/pupil) in a small region around each eye center, mouth openness = dark-pixel fraction (oral cavity) in a region spanning the mouth corners. A blink is a transient dip in eye openness, a yawn/talk is a transient rise in mouth darkness — each detected by a small own-written state machine with an adaptive baseline and hysteresis. A tracked face that blinks or moves its mouth within a time window is labeled LIVE; one that does neither for a full window is flagged as possibly a photo. All signal extraction, state machines, and the decision window are own code; no extra model files are needed.
 
 ### Why this satisfies the "own work" constraint
 
@@ -86,7 +86,7 @@ Gallery format: a `gallery/` folder with one subfolder per person (`gallery/alic
 4. **M3 — Recognition (must):** gallery loading, embeddings, matching, name labels, threshold slider.
 5. **M4 — Docs & polish (must):** README with build instructions for both platforms; written report (approach, how detection/recognition work, threshold-tuning observations, results); demo assets (test images, short video, example gallery).
 6. **M5 — Face tracking (stretch):** IoU/centroid tracker, stable IDs drawn on video.
-7. **M6 — Liveness (stretch):** blink-based live/photo flag on webcam mode; report section on its limits.
+7. **M6 — Liveness (stretch):** blink/mouth-movement live-photo flag on video and webcam modes; report section on its limits.
 
 Each milestone is independently demoable. M0–M4 deliver the full required scope; M5/M6 only start once M4 is done.
 
@@ -113,7 +113,7 @@ Each milestone is independently demoable. M0–M4 deliver the full required scop
 | VS Code debugging on Windows (msys2/gdb) is flakier than Visual Studio | Fallback: generate a VS2022 project from the same code |
 | Webcam permissions/quirks on macOS | Known fix (Info.plist entry); video-file mode is the fallback demo path |
 | Recognition accuracy on a small gallery | Threshold slider for live tuning; multiple gallery photos per person |
-| Blink-based liveness is easily fooled / misses non-blinkers | Scope it honestly in the report as a demo of the technique, not a security feature |
+| Blink/mouth-based liveness is easily fooled (video replay) / misses motionless faces | Scope it honestly in the report as a demo of the technique, not a security feature; mouth movement gives a second, independent evidence stream |
 
 ## 10. Resolved questions
 
