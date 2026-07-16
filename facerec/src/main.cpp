@@ -6,9 +6,14 @@
 #include "ofMain.h"
 #include "ofApp.h"
 #include "AppPaths.h"
+#include "BlinkDetector.h"
 #include "FaceDetector.h"
 #include "FaceRecognizer.h"
 #include "FaceTracker.h"
+#include "LivenessDetector.h"
+#include "MouthMovementDetector.h"
+
+#include <opencv2/imgproc.hpp>
 
 #include <algorithm>
 #include <cstdio>
@@ -128,6 +133,236 @@ void selftestTracker(const std::function<void(bool, const std::string &)> &check
 }
 
 /**
+ * @brief Exercise the liveness pipeline on synthetic input.
+ * @param check Callback that records one named pass/fail result.
+ *
+ * Covers all layers without models or a display: the blink and
+ * mouth-movement state machines on hand-made 1-D signals, the photometric
+ * eye/mouth measures on drawn patches, and the full per-track live/photo
+ * decision on rendered frames driven by a fake clock.
+ */
+void selftestLiveness(const std::function<void(bool, const std::string &)> &check)
+{
+    // --- blink state machine on synthetic openness signals ---
+    auto countBlinks = [](const std::vector<float> &signal) {
+        BlinkDetector blink;
+        int count = 0;
+        for (float openness : signal)
+        {
+            count += blink.addSample(openness) ? 1 : 0;
+        }
+        return count;
+    };
+
+    std::vector<float> steadyEye(60, 0.2f);
+    check(countBlinks(steadyEye) == 0, "blink detector ignores a steadily open eye");
+
+    auto oneDip = steadyEye;
+    for (int i = 30; i < 33; i++)
+    {
+        oneDip[i] = 0.02f;
+    }
+    check(countBlinks(oneDip) == 1, "blink detector counts a short dip as one blink");
+
+    auto twoDips = oneDip;
+    for (int i = 45; i < 48; i++)
+    {
+        twoDips[i] = 0.02f;
+    }
+    check(countBlinks(twoDips) == 2, "blink detector counts separated dips individually");
+
+    std::vector<float> longClosure(120, 0.2f);
+    for (int i = 30; i < 30 + BlinkDetector::kMaxClosedFrames * 2; i++)
+    {
+        longClosure[i] = 0.02f;
+    }
+    check(countBlinks(longClosure) == 0, "blink detector rejects a closure longer than a blink");
+
+    // Alternating dips that stay above the closing threshold must not fire.
+    std::vector<float> noisyEye(60);
+    for (size_t i = 0; i < noisyEye.size(); i++)
+    {
+        noisyEye[i] = (i % 2 == 0) ? 0.2f : 0.15f;
+    }
+    check(countBlinks(noisyEye) == 0, "blink detector tolerates mild signal noise");
+
+    // --- mouth-movement state machine on synthetic darkness signals ---
+    auto countMovements = [](const std::vector<float> &signal) {
+        MouthMovementDetector mouth;
+        int count = 0;
+        for (float darkness : signal)
+        {
+            count += mouth.addSample(darkness) ? 1 : 0;
+        }
+        return count;
+    };
+
+    std::vector<float> steadyMouth(60, 0.05f);
+    check(countMovements(steadyMouth) == 0, "mouth detector ignores a steadily closed mouth");
+
+    auto oneYawn = steadyMouth;
+    for (int i = 30; i < 40; i++)
+    {
+        oneYawn[i] = 0.35f;
+    }
+    check(countMovements(oneYawn) == 1, "mouth detector counts a bounded opening as one movement");
+
+    auto twoYawns = oneYawn;
+    for (int i = 48; i < 54; i++)
+    {
+        twoYawns[i] = 0.35f;
+    }
+    check(countMovements(twoYawns) == 2, "mouth detector counts separated openings individually");
+
+    auto spike = steadyMouth;
+    spike[30] = 0.35f;
+    check(countMovements(spike) == 0, "mouth detector rejects a single-frame spike");
+
+    std::vector<float> openFromStart(120, 0.35f);
+    check(countMovements(openFromStart) == 0, "mouth detector never fires on a mouth dark from the start");
+
+    std::vector<float> endlessOpening(260, 0.05f);
+    for (int i = 30; i < 30 + MouthMovementDetector::kMaxOpenFrames + 50; i++)
+    {
+        endlessOpening[i] = 0.35f;
+    }
+    check(countMovements(endlessOpening) == 0, "mouth detector re-baselines an opening that outlives a yawn");
+
+    // --- photometric measures on drawn patches ---
+    auto makeFace = [](float x) {
+        FaceDetection face;
+        face.box = ofRectangle(x, 50, 100, 100);
+        face.landmarks[0] = glm::vec2(x + 30, 90);  // right eye
+        face.landmarks[1] = glm::vec2(x + 70, 90);  // left eye
+        face.landmarks[2] = glm::vec2(x + 50, 110); // nose, unused by liveness
+        face.landmarks[3] = glm::vec2(x + 35, 130); // right mouth corner
+        face.landmarks[4] = glm::vec2(x + 65, 130); // left mouth corner
+        return face;
+    };
+
+    cv::Mat openEye(200, 200, CV_8UC1, cv::Scalar(180));
+    cv::circle(openEye, cv::Point(100, 100), 6, cv::Scalar(40), cv::FILLED);
+    cv::Mat closedEye(200, 200, CV_8UC1, cv::Scalar(180));
+    float open = eyeOpenness(openEye, glm::vec2(100, 100), 100.0f);
+    float shut = eyeOpenness(closedEye, glm::vec2(100, 100), 100.0f);
+    check(open > 0.1f && shut >= 0.0f && shut < 0.02f, "eye openness separates a dark iris from uniform eyelid skin");
+    check(eyeOpenness(openEye, glm::vec2(-20, -20), 100.0f) < 0.0f,
+          "eye openness reports an off-frame eye region as unmeasurable");
+
+    FaceDetection mouthFace = makeFace(50);
+    cv::Mat openMouth(200, 200, CV_8UC1, cv::Scalar(180));
+    cv::ellipse(openMouth, cv::Point(100, 138), cv::Size(12, 9), 0, 0, 360, cv::Scalar(40), cv::FILLED);
+    cv::Mat closedMouth(200, 200, CV_8UC1, cv::Scalar(180));
+    float agape = faceMouthDarkness(openMouth, mouthFace);
+    float lipsTogether = faceMouthDarkness(closedMouth, mouthFace);
+    check(agape > 0.2f && lipsTogether >= 0.0f && lipsTogether < 0.02f,
+          "mouth darkness separates an open cavity from closed lips");
+
+    // --- end-to-end live/photo verdicts on rendered frames, fake clock ---
+    // Three synthetic 100 px faces on bright uniform "skin": open eyes are
+    // dark discs (closed eyes simply skin), an open mouth is a dark ellipse.
+    // Face 0 blinks periodically, face 1 yawns periodically with eyes always
+    // open, face 2 (the "photo") never does either.
+    std::vector<FaceDetection> faces = {makeFace(20), makeFace(180), makeFace(340)};
+    std::vector<int> ids = {1, 2, 3};
+
+    auto renderFrame = [&faces](bool blinkerEyesOpen, bool yawnerMouthOpen) {
+        cv::Mat frame(200, 480, CV_8UC3, cv::Scalar(180, 180, 180));
+        auto drawOpenEyes = [&frame](const FaceDetection &face) {
+            for (int eye = 0; eye < 2; eye++)
+            {
+                cv::Point center(int(face.landmarks[eye].x), int(face.landmarks[eye].y));
+                cv::circle(frame, center, 6, cv::Scalar(40, 40, 40), cv::FILLED);
+            }
+        };
+        if (blinkerEyesOpen)
+        {
+            drawOpenEyes(faces[0]);
+        }
+        drawOpenEyes(faces[1]);
+        drawOpenEyes(faces[2]);
+        if (yawnerMouthOpen)
+        {
+            cv::Point mouthCenter(int(faces[1].box.x) + 50, 138);
+            cv::ellipse(frame, mouthCenter, cv::Size(12, 9), 0, 0, 360, cv::Scalar(40, 40, 40), cv::FILLED);
+        }
+        return frame;
+    };
+
+    LivenessDetector liveness;
+    constexpr float kFps = 30.0f;
+    std::vector<LivenessDetector::Status> early;
+    std::vector<LivenessDetector::Status> statuses;
+    for (int frame = 0; frame < 360; frame++)
+    {
+        // Face 0 closes its eyes for 3 frames every 3 seconds; face 1 opens
+        // its mouth for 20 frames every 4 seconds; 360 frames = 12 s of fake
+        // time, comfortably past the 7 s decision window.
+        int blinkPhase = frame % 90;
+        bool blinkerOpen = blinkPhase < 60 || blinkPhase > 62;
+        int yawnPhase = frame % 120;
+        bool yawnerOpen = yawnPhase >= 60 && yawnPhase < 80;
+        statuses = liveness.update(renderFrame(blinkerOpen, yawnerOpen), faces, ids, frame / kFps);
+        if (frame == 45)
+        {
+            early = statuses;
+        }
+    }
+    check(early.size() == 3 && early[0].verdict == LivenessDetector::Verdict::Pending &&
+              early[1].verdict == LivenessDetector::Verdict::Pending &&
+              early[2].verdict == LivenessDetector::Verdict::Pending,
+          "liveness stays pending before the decision window elapses");
+    check(statuses.size() == 3 && statuses[0].verdict == LivenessDetector::Verdict::Live &&
+              statuses[0].blinkCount >= 2,
+          "liveness marks a blinking face LIVE");
+    check(statuses[1].verdict == LivenessDetector::Verdict::Live && statuses[1].mouthMovementCount >= 2 &&
+              statuses[1].blinkCount == 0,
+          "liveness marks a yawning face LIVE without any blink");
+    check(statuses[2].verdict == LivenessDetector::Verdict::NoActivity && statuses[2].blinkCount == 0 &&
+              statuses[2].mouthMovementCount == 0,
+          "liveness flags a motionless face as a possible photo");
+
+    // --- a LIVE verdict expires back to NoActivity after a still window ---
+    // A single face blinks a few times in the first few seconds, then holds
+    // perfectly still. It must read LIVE right after blinking and then fall
+    // back to PHOTO? once a full decision window passes without any activity.
+    FaceDetection loneFace = makeFace(20);
+    std::vector<FaceDetection> lone = {loneFace};
+    std::vector<int> loneIds = {1};
+    auto renderLone = [&loneFace](bool eyesOpen) {
+        cv::Mat frame(200, 200, CV_8UC3, cv::Scalar(180, 180, 180));
+        if (eyesOpen)
+        {
+            for (int eye = 0; eye < 2; eye++)
+            {
+                cv::Point center(int(loneFace.landmarks[eye].x), int(loneFace.landmarks[eye].y));
+                cv::circle(frame, center, 6, cv::Scalar(40, 40, 40), cv::FILLED);
+            }
+        }
+        return frame;
+    };
+
+    LivenessDetector expiring;
+    LivenessDetector::Status whileActive;
+    LivenessDetector::Status afterStill;
+    for (int frame = 0; frame < 360; frame++)
+    {
+        // Three 3-frame blinks in the first ~3 s (frames 27-29, 57-59, 87-89),
+        // then eyes stay open for the remaining ~9 s — well past the 7 s window.
+        bool eyesOpen = frame >= 90 || frame % 30 < 27;
+        afterStill = expiring.update(renderLone(eyesOpen), lone, loneIds, frame / kFps)[0];
+        if (frame == 120)
+        {
+            whileActive = afterStill;
+        }
+    }
+    check(whileActive.verdict == LivenessDetector::Verdict::Live && whileActive.blinkCount >= 2,
+          "liveness reads LIVE while a recent blink is inside the window");
+    check(afterStill.verdict == LivenessDetector::Verdict::NoActivity,
+          "liveness expires a LIVE verdict to PHOTO? after a still window");
+}
+
+/**
  * @brief Run dependency, model, and tracker self-checks without creating a window.
  * @return Process exit code compatible with CI usage.
  */
@@ -164,6 +399,7 @@ int runSelftest()
     }
 
     selftestTracker(check);
+    selftestLiveness(check);
 
     ofLogNotice("facerec") << (allPassed ? "selftest passed" : "selftest FAILED");
     return allPassed ? 0 : 1;
