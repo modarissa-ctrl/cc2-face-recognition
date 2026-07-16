@@ -1,0 +1,192 @@
+/**
+ * @file LivenessDetector.cpp
+ * @brief Implementation of the liveness detector and its photometric signals.
+ */
+
+#include "LivenessDetector.h"
+
+#include <algorithm>
+#include <iterator>
+
+#include <opencv2/imgproc.hpp>
+
+namespace
+{
+
+/**
+ * @brief Eye-region half width as a fraction of the face-box width.
+ *
+ * A human eye spans roughly a fifth of the face width; the region is kept a
+ * little wider so the iris stays inside it through small landmark jitter.
+ */
+constexpr float kEyeRoiHalfWidthFactor = 0.11f;
+
+/**
+ * @brief Eye-region half height as a fraction of the face-box width.
+ *
+ * Deliberately short so the (always dark) eyebrow stays outside the region —
+ * otherwise a closed eye would still contain dark pixels and blinks would
+ * barely change the measure.
+ */
+constexpr float kEyeRoiHalfHeightFactor = 0.07f;
+
+/**
+ * @brief Mouth-region half width as a fraction of the mouth-corner span.
+ */
+constexpr float kMouthRoiHalfWidthFactor = 0.6f;
+
+/**
+ * @brief Mouth-region half height as a fraction of the mouth-corner span.
+ */
+constexpr float kMouthRoiHalfHeightFactor = 0.45f;
+
+/**
+ * @brief Downward shift of the mouth region as a fraction of the corner span.
+ *
+ * The jaw drops when the mouth opens, so the dark cavity appears mostly
+ * below the corner line.
+ */
+constexpr float kMouthRoiDownShiftFactor = 0.15f;
+
+/**
+ * @brief Smallest mouth-corner span accepted, as a fraction of the face width.
+ *
+ * Guards the region size against landmark jitter when the corners nearly
+ * coincide (extreme head poses).
+ */
+constexpr float kMinMouthSpanFactor = 0.2f;
+
+/**
+ * @brief Pixels below this fraction of the region mean count as dark.
+ */
+constexpr float kDarkThresholdRatio = 0.7f;
+
+/**
+ * @brief Minimum usable region side length in pixels.
+ */
+constexpr int kMinRoiSide = 3;
+
+} // namespace
+
+float darkFraction(const cv::Mat &gray, cv::Rect roi)
+{
+    roi &= cv::Rect(0, 0, gray.cols, gray.rows);
+    if (roi.width < kMinRoiSide || roi.height < kMinRoiSide)
+    {
+        return -1.0f;
+    }
+    cv::Mat patch = gray(roi);
+    double mean = cv::mean(patch)[0];
+    if (mean <= 0.0)
+    {
+        // An all-black region carries no information (dead frame, total
+        // shadow), so report it as unmeasurable rather than as a signal.
+        return -1.0f;
+    }
+    int dark = cv::countNonZero(patch < kDarkThresholdRatio * mean);
+    return float(dark) / float(patch.total());
+}
+
+float eyeOpenness(const cv::Mat &gray, const glm::vec2 &eyeCenter, float faceWidth)
+{
+    float halfW = kEyeRoiHalfWidthFactor * faceWidth;
+    float halfH = kEyeRoiHalfHeightFactor * faceWidth;
+    return darkFraction(gray, cv::Rect(int(eyeCenter.x - halfW), int(eyeCenter.y - halfH), int(2.0f * halfW),
+                                       int(2.0f * halfH)));
+}
+
+float faceEyeOpenness(const cv::Mat &gray, const FaceDetection &face)
+{
+    // YuNet landmark order puts the two eyes at indices 0 and 1. Averaging the
+    // measurable eyes halves the noise; a blink closes both eyes at once, so
+    // the dip survives the averaging.
+    float sum = 0.0f;
+    int measured = 0;
+    for (int eye = 0; eye < 2; eye++)
+    {
+        float openness = eyeOpenness(gray, face.landmarks[eye], face.box.width);
+        if (openness >= 0.0f)
+        {
+            sum += openness;
+            measured++;
+        }
+    }
+    return measured > 0 ? sum / float(measured) : -1.0f;
+}
+
+float faceMouthDarkness(const cv::Mat &gray, const FaceDetection &face)
+{
+    // YuNet landmark order puts the mouth corners at indices 3 and 4.
+    glm::vec2 rightCorner = face.landmarks[3];
+    glm::vec2 leftCorner = face.landmarks[4];
+    glm::vec2 center = (rightCorner + leftCorner) * 0.5f;
+    float span = std::max(glm::distance(rightCorner, leftCorner), kMinMouthSpanFactor * face.box.width);
+    float halfW = kMouthRoiHalfWidthFactor * span;
+    float halfH = kMouthRoiHalfHeightFactor * span;
+    float centerY = center.y + kMouthRoiDownShiftFactor * span;
+    return darkFraction(gray, cv::Rect(int(center.x - halfW), int(centerY - halfH), int(2.0f * halfW),
+                                       int(2.0f * halfH)));
+}
+
+std::vector<LivenessDetector::Status> LivenessDetector::update(const cv::Mat &bgr,
+                                                               const std::vector<FaceDetection> &faces,
+                                                               const std::vector<int> &trackIds, float nowSeconds)
+{
+    std::vector<Status> statuses(faces.size());
+    if (!faces.empty() && !trackIds.empty())
+    {
+        cv::Mat gray;
+        cv::cvtColor(bgr, gray, cv::COLOR_BGR2GRAY);
+        for (size_t i = 0; i < faces.size() && i < trackIds.size(); i++)
+        {
+            auto [it, isNew] = states.try_emplace(trackIds[i]);
+            TrackState &state = it->second;
+            if (isNew)
+            {
+                state.firstSeen = nowSeconds;
+            }
+            state.lastSeen = nowSeconds;
+            state.framesObserved++;
+
+            if (state.blink.addSample(faceEyeOpenness(gray, faces[i])))
+            {
+                state.blinkCount++;
+                state.lastActivityAt = nowSeconds;
+            }
+            if (state.mouth.addSample(faceMouthDarkness(gray, faces[i])))
+            {
+                state.mouthMovementCount++;
+                state.lastActivityAt = nowSeconds;
+            }
+
+            statuses[i].blinkCount = state.blinkCount;
+            statuses[i].mouthMovementCount = state.mouthMovementCount;
+            if (state.lastActivityAt >= 0.0f && nowSeconds - state.lastActivityAt <= kDecisionWindowSeconds)
+            {
+                statuses[i].verdict = Verdict::Live;
+            }
+            else if (nowSeconds - state.firstSeen >= kDecisionWindowSeconds &&
+                     state.framesObserved >= kMinObservedFrames)
+            {
+                // Only flag a photo once the window has elapsed *and* the face
+                // has actually been sampled on enough frames — the wall-clock
+                // window alone would misfire after a pause or slow detection.
+                statuses[i].verdict = Verdict::NoActivity;
+            }
+            // else: still Pending (default) — not enough observation yet.
+        }
+    }
+
+    // Forget tracks the tracker itself has long dropped so their IDs can be
+    // recycled by new faces without inheriting old activity history.
+    for (auto it = states.begin(); it != states.end();)
+    {
+        it = (nowSeconds - it->second.lastSeen > kStaleTrackSeconds) ? states.erase(it) : std::next(it);
+    }
+    return statuses;
+}
+
+void LivenessDetector::reset()
+{
+    states.clear();
+}
