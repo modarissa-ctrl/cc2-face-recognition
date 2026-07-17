@@ -186,6 +186,55 @@ void selftestLiveness(const std::function<void(bool, const std::string &)> &chec
     }
     check(countBlinks(noisyEye) == 0, "blink detector tolerates mild signal noise");
 
+    // From real footage (test/videos): the open level drifts, but a genuine
+    // blink dips ~0.2 below it and recovers. Even a shallow early blink (open
+    // ~0.70, dip to ~0.50 for two samples) must fire — the ratio detector
+    // this replaced missed exactly these, because 0.50 is only ~0.7 of the
+    // open level, no deeper (in ratio) than the worst photo noise.
+    std::vector<float> shallowBlink(60, 0.70f);
+    for (int i = 30; i < 32; i++)
+    {
+        shallowBlink[i] = 0.50f;
+    }
+    check(countBlinks(shallowBlink) == 1, "blink detector catches a shallow early-blink dip by prominence");
+
+    // A deeper, wider blink (up to the duration cap) still counts exactly once.
+    std::vector<float> deepBlink(60, 0.58f);
+    for (int i = 30; i < 36; i++)
+    {
+        deepBlink[i] = 0.33f;
+    }
+    check(countBlinks(deepBlink) == 1, "blink detector counts a deep multi-sample blink once");
+
+    // The photo's mid-clip jitter oscillates open/dip every frame and never
+    // settles open for two consecutive samples. Each lone dip is only a
+    // single closed frame and never re-arms, so nothing fires.
+    std::vector<float> chatter(60, 0.66f);
+    for (size_t i = 12; i < chatter.size(); i++)
+    {
+        chatter[i] = (i % 2 == 0) ? 0.66f : 0.46f;
+    }
+    check(countBlinks(chatter) == 0, "blink detector ignores oscillating chatter that never settles open");
+
+    // The photo's end-of-clip dip is deep but sustained — it stays low far
+    // longer than any blink, so it is abandoned without a count.
+    std::vector<float> sustained(90, 0.64f);
+    for (int i = 30; i < 60; i++)
+    {
+        sustained[i] = 0.44f;
+    }
+    check(countBlinks(sustained) == 0, "blink detector abandons a sustained dark excursion");
+
+    // A closure that recovers only partway and holds there (a squint or a
+    // stare) never returns near the open level, so it is abandoned, not
+    // counted, however long it lasts.
+    std::vector<float> partialReopen(90, 0.60f);
+    for (int i = 30; i < 90; i++)
+    {
+        partialReopen[i] = 0.42f;
+    }
+    check(countBlinks(partialReopen) == 0, "blink detector never fires when the eye never returns near open");
+
     // --- mouth-movement state machine on synthetic darkness signals ---
     auto countMovements = [](const std::vector<float> &signal) {
         MouthMovementDetector mouth;
