@@ -57,9 +57,17 @@ constexpr float kMouthRoiDownShiftFactor = 0.15f;
 constexpr float kMinMouthSpanFactor = 0.2f;
 
 /**
- * @brief Pixels below this fraction of the region mean count as dark.
+ * @brief Pixels below this fraction of the reference brightness count as dark.
  */
 constexpr float kDarkThresholdRatio = 0.7f;
+
+/**
+ * @brief Central fraction of the face box sampled for the brightness reference.
+ *
+ * The middle half of the box in both axes: dominated by skin, free of the
+ * background and hair that touch the box edges.
+ */
+constexpr float kFaceRefPatchFraction = 0.5f;
 
 /**
  * @brief Minimum usable region side length in pixels.
@@ -68,7 +76,7 @@ constexpr int kMinRoiSide = 3;
 
 } // namespace
 
-float darkFraction(const cv::Mat &gray, cv::Rect roi)
+float darkFraction(const cv::Mat &gray, cv::Rect roi, float referenceMean)
 {
     roi &= cv::Rect(0, 0, gray.cols, gray.rows);
     if (roi.width < kMinRoiSide || roi.height < kMinRoiSide)
@@ -76,23 +84,36 @@ float darkFraction(const cv::Mat &gray, cv::Rect roi)
         return -1.0f;
     }
     cv::Mat patch = gray(roi);
-    double mean = cv::mean(patch)[0];
-    if (mean <= 0.0)
+    double reference = referenceMean > 0.0f ? referenceMean : cv::mean(patch)[0];
+    if (reference <= 0.0)
     {
         // An all-black region carries no information (dead frame, total
         // shadow), so report it as unmeasurable rather than as a signal.
         return -1.0f;
     }
-    int dark = cv::countNonZero(patch < kDarkThresholdRatio * mean);
+    int dark = cv::countNonZero(patch < kDarkThresholdRatio * reference);
     return float(dark) / float(patch.total());
 }
 
-float eyeOpenness(const cv::Mat &gray, const glm::vec2 &eyeCenter, float faceWidth)
+float eyeOpenness(const cv::Mat &gray, const glm::vec2 &eyeCenter, float faceWidth, float faceMean)
 {
     float halfW = kEyeRoiHalfWidthFactor * faceWidth;
     float halfH = kEyeRoiHalfHeightFactor * faceWidth;
     return darkFraction(gray, cv::Rect(int(eyeCenter.x - halfW), int(eyeCenter.y - halfH), int(2.0f * halfW),
-                                       int(2.0f * halfH)));
+                                       int(2.0f * halfH)), faceMean);
+}
+
+float faceReferenceMean(const cv::Mat &gray, const FaceDetection &face)
+{
+    float margin = (1.0f - kFaceRefPatchFraction) * 0.5f;
+    cv::Rect patch(int(face.box.x + margin * face.box.width), int(face.box.y + margin * face.box.height),
+                   int(kFaceRefPatchFraction * face.box.width), int(kFaceRefPatchFraction * face.box.height));
+    patch &= cv::Rect(0, 0, gray.cols, gray.rows);
+    if (patch.width < kMinRoiSide || patch.height < kMinRoiSide)
+    {
+        return -1.0f;
+    }
+    return float(cv::mean(gray(patch))[0]);
 }
 
 float faceEyeOpenness(const cv::Mat &gray, const FaceDetection &face)
@@ -100,11 +121,12 @@ float faceEyeOpenness(const cv::Mat &gray, const FaceDetection &face)
     // YuNet landmark order puts the two eyes at indices 0 and 1. Averaging the
     // measurable eyes halves the noise; a blink closes both eyes at once, so
     // the dip survives the averaging.
+    float faceMean = faceReferenceMean(gray, face);
     float sum = 0.0f;
     int measured = 0;
     for (int eye = 0; eye < 2; eye++)
     {
-        float openness = eyeOpenness(gray, face.landmarks[eye], face.box.width);
+        float openness = eyeOpenness(gray, face.landmarks[eye], face.box.width, faceMean);
         if (openness >= 0.0f)
         {
             sum += openness;

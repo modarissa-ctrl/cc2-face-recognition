@@ -18,30 +18,53 @@
  * @brief Fraction of dark pixels inside one image region.
  * @param gray 8-bit single-channel image.
  * @param roi Region of interest in image pixels; clipped to the image.
- * @return Fraction of pixels darker than a threshold relative to the region's
- *         own mean intensity, in `[0, 1]`, or `-1` when the clipped region is
- *         too small to measure.
+ * @param referenceMean Brightness the dark threshold is relative to; when not
+ *        positive, the region's own mean intensity is used instead.
+ * @return Fraction of pixels darker than a threshold relative to the
+ *         reference, in `[0, 1]`, or `-1` when the clipped region is too
+ *         small to measure.
  *
- * Normalizing the darkness threshold by the region mean keeps the measure
- * stable across lighting and skin tones. This one primitive powers both
- * liveness signals: eye openness and mouth-cavity darkness.
+ * Normalizing the darkness threshold by a brightness reference keeps the
+ * measure stable across lighting and skin tones. This one primitive powers
+ * both liveness signals: eye openness and mouth-cavity darkness.
  */
-float darkFraction(const cv::Mat &gray, cv::Rect roi);
+float darkFraction(const cv::Mat &gray, cv::Rect roi, float referenceMean = -1.0f);
 
 /**
  * @brief Measure how open one eye is from its surrounding image region.
  * @param gray 8-bit single-channel image the detection coordinates refer to.
  * @param eyeCenter Eye-center landmark in image pixels (YuNet indices 0 or 1).
  * @param faceWidth Width of the detected face box, used to size the eye region.
+ * @param faceMean Mean brightness of the face (see `faceReferenceMean`) used
+ *        as the dark-threshold reference; when not positive, the eye region's
+ *        own mean is used as a fallback.
  * @return Openness value in `[0, 1]`, or `-1` when the region is unusable.
  *
  * The measure is the dark-pixel fraction of a small rectangle centered on the
  * eye landmark. An open eye contains the dark iris/pupil cluster; a closed
- * eye is nearly uniform eyelid skin, so the fraction collapses toward zero.
- * This is our EAR analog: the bundled OpenCV has no dense eyelid landmarks,
- * so openness is measured photometrically instead of geometrically.
+ * eye is mostly eyelid skin, so the fraction drops. The dark threshold is
+ * anchored to the face's overall brightness rather than the eye region's own
+ * mean: self-normalization would raise the threshold exactly when the bright
+ * eyelid replaces the dark iris, letting lashes and eye-socket shadow keep
+ * the fraction high and flattening the blink dip below detectability (seen
+ * on real footage, especially with glasses). This is our EAR analog: the
+ * bundled OpenCV has no dense eyelid landmarks, so openness is measured
+ * photometrically instead of geometrically.
  */
-float eyeOpenness(const cv::Mat &gray, const glm::vec2 &eyeCenter, float faceWidth);
+float eyeOpenness(const cv::Mat &gray, const glm::vec2 &eyeCenter, float faceWidth, float faceMean);
+
+/**
+ * @brief Mean brightness of the central patch of a detected face box.
+ * @param gray 8-bit single-channel image the detection coordinates refer to.
+ * @param face Detection providing the face box.
+ * @return Mean intensity of the middle half of the box, or `-1` when the
+ *         clipped patch is too small to measure.
+ *
+ * Serves as the lighting/skin-tone reference for `eyeOpenness`. The middle
+ * half of the box is dominated by skin (cheeks, nose, forehead) and excludes
+ * the background and hair along the box edges.
+ */
+float faceReferenceMean(const cv::Mat &gray, const FaceDetection &face);
 
 /**
  * @brief Combined eye openness for one detected face.

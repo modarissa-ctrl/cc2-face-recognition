@@ -292,11 +292,28 @@ void selftestLiveness(const std::function<void(bool, const std::string &)> &chec
     cv::Mat openEye(200, 200, CV_8UC1, cv::Scalar(180));
     cv::circle(openEye, cv::Point(100, 100), 6, cv::Scalar(40), cv::FILLED);
     cv::Mat closedEye(200, 200, CV_8UC1, cv::Scalar(180));
-    float open = eyeOpenness(openEye, glm::vec2(100, 100), 100.0f);
-    float shut = eyeOpenness(closedEye, glm::vec2(100, 100), 100.0f);
+    float skinMean = 180.0f;
+    float open = eyeOpenness(openEye, glm::vec2(100, 100), 100.0f, skinMean);
+    float shut = eyeOpenness(closedEye, glm::vec2(100, 100), 100.0f, skinMean);
     check(open > 0.1f && shut >= 0.0f && shut < 0.02f, "eye openness separates a dark iris from uniform eyelid skin");
-    check(eyeOpenness(openEye, glm::vec2(-20, -20), 100.0f) < 0.0f,
+    check(eyeOpenness(openEye, glm::vec2(-20, -20), 100.0f, skinMean) < 0.0f,
           "eye openness reports an off-frame eye region as unmeasurable");
+
+    // The dark threshold is anchored to the face brightness, so a closed eye
+    // sitting in a shadowed socket (darker than the face, but uniform) still
+    // reads as far less open than one with an iris — the self-normalized
+    // variant collapsed this contrast and made real blinks undetectable.
+    cv::Mat shadowedClosed(200, 200, CV_8UC1, cv::Scalar(140));
+    cv::Mat shadowedOpen = shadowedClosed.clone();
+    cv::circle(shadowedOpen, cv::Point(100, 100), 6, cv::Scalar(40), cv::FILLED);
+    float shadowShut = eyeOpenness(shadowedClosed, glm::vec2(100, 100), 100.0f, skinMean);
+    float shadowOpen = eyeOpenness(shadowedOpen, glm::vec2(100, 100), 100.0f, skinMean);
+    check(shadowOpen > shadowShut + 0.1f, "eye openness keeps blink contrast inside a shadowed eye socket");
+
+    FaceDetection refFace = makeFace(50);
+    cv::Mat uniformFace(200, 200, CV_8UC1, cv::Scalar(180));
+    float refMean = faceReferenceMean(uniformFace, refFace);
+    check(refMean > 175.0f && refMean < 185.0f, "face reference mean samples the central face patch");
 
     FaceDetection mouthFace = makeFace(50);
     cv::Mat openMouth(200, 200, CV_8UC1, cv::Scalar(180));
