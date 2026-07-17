@@ -411,10 +411,13 @@ void selftestLiveness(const std::function<void(bool, const std::string &)> &chec
     LivenessDetector expiring;
     LivenessDetector::Status whileActive;
     LivenessDetector::Status afterStill;
-    for (int frame = 0; frame < 360; frame++)
+    // 780 frames = 26 s of fake time. A proven-live face holds LIVE for the
+    // sticky window (20 s) after its last activity, so the run must extend
+    // well past 20 s from the final blink to see the verdict expire.
+    for (int frame = 0; frame < 780; frame++)
     {
         // Three 3-frame blinks in the first ~3 s (frames 27-29, 57-59, 87-89),
-        // then eyes stay open for the remaining ~9 s — well past the 7 s window.
+        // then eyes stay open for the remaining ~23 s — past the sticky window.
         bool eyesOpen = frame >= 90 || frame % 30 < 27;
         afterStill = expiring.update(renderLone(eyesOpen), lone, loneIds, frame / kFps)[0];
         if (frame == 120)
@@ -425,7 +428,7 @@ void selftestLiveness(const std::function<void(bool, const std::string &)> &chec
     check(whileActive.verdict == LivenessDetector::Verdict::Live && whileActive.blinkCount >= 2,
           "liveness reads LIVE while a recent blink is inside the window");
     check(afterStill.verdict == LivenessDetector::Verdict::NoActivity,
-          "liveness expires a LIVE verdict to PHOTO? after a still window");
+          "liveness expires a proven-live verdict to PHOTO? after the sticky window");
 }
 
 /**

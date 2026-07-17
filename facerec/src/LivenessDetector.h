@@ -134,6 +134,20 @@ class LivenessDetector
     static constexpr float kDecisionWindowSeconds = 7.0f;
 
     /**
+     * @brief How long a proven-live face keeps its LIVE verdict without new
+     *        activity, in seconds.
+     *
+     * Once a track has produced at least one blink or mouth movement it has
+     * demonstrated liveness, so its verdict is held LIVE through longer quiet
+     * stretches than the initial decision window allows — sparse detected
+     * blinks, or the shallow-blink opening seconds after a looped video
+     * restarts, would otherwise flip a real person to PHOTO?. A face that has
+     * *never* shown any activity gets no such grace and still flips after
+     * `kDecisionWindowSeconds`, because a photo never blinked at all.
+     */
+    static constexpr float kLiveStickySeconds = 20.0f;
+
+    /**
      * @brief Seconds after which an unseen track's liveness state is discarded.
      *
      * Comfortably longer than the tracker's own dropout grace period so a
@@ -181,14 +195,14 @@ class LivenessDetector
      */
     struct TrackState
     {
-        BlinkDetector blink;         //< Blink detector fed by this face's eye-openness signal.
-        MouthMovementDetector mouth; //< Mouth detector fed by this face's mouth-darkness signal.
-        float firstSeen = 0.0f;      //< Timestamp when this track was first observed.
-        float lastSeen = 0.0f;       //< Timestamp of the most recent observation.
+        BlinkDetector blink;          //< Blink detector fed by this face's raw eye-openness signal.
+        MouthMovementDetector mouth;  //< Mouth detector fed by this face's mouth-darkness signal.
+        float firstSeen = 0.0f;       //< Timestamp when this track was first observed.
+        float lastSeen = 0.0f;        //< Timestamp of the most recent observation.
         float lastActivityAt = -1.0f; //< Timestamp of the last blink or mouth movement, negative before the first.
-        int framesObserved = 0;      //< Frames this track has actually been sampled on.
-        int blinkCount = 0;          //< Total blinks observed on this track.
-        int mouthMovementCount = 0;  //< Total mouth movements observed on this track.
+        int framesObserved = 0;       //< Frames this track has actually been sampled on.
+        int blinkCount = 0;           //< Total blinks observed on this track.
+        int mouthMovementCount = 0;   //< Total mouth movements observed on this track.
     };
 
     std::map<int, TrackState> states; //< Liveness state per stable track ID.

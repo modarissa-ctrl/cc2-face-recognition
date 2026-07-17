@@ -170,12 +170,18 @@ std::vector<LivenessDetector::Status> LivenessDetector::update(const cv::Mat &bg
             state.lastSeen = nowSeconds;
             state.framesObserved++;
 
-            if (state.blink.addSample(faceEyeOpenness(gray, faces[i])))
+            // The blink detector locates blinks by prominence and handles the
+            // noise itself, so the raw eye signal is fed straight in — a
+            // moving average here would smear the sharp one-to-two-sample
+            // blink troughs it relies on. The mouth signal is likewise raw.
+            float openness = faceEyeOpenness(gray, faces[i]);
+            float mouthDarkness = faceMouthDarkness(gray, faces[i]);
+            if (state.blink.addSample(openness))
             {
                 state.blinkCount++;
                 state.lastActivityAt = nowSeconds;
             }
-            if (state.mouth.addSample(faceMouthDarkness(gray, faces[i])))
+            if (state.mouth.addSample(mouthDarkness))
             {
                 state.mouthMovementCount++;
                 state.lastActivityAt = nowSeconds;
@@ -183,7 +189,14 @@ std::vector<LivenessDetector::Status> LivenessDetector::update(const cv::Mat &bg
 
             statuses[i].blinkCount = state.blinkCount;
             statuses[i].mouthMovementCount = state.mouthMovementCount;
-            if (state.lastActivityAt >= 0.0f && nowSeconds - state.lastActivityAt <= kDecisionWindowSeconds)
+            // A face that has already proven live keeps the verdict through a
+            // longer quiet stretch than one still on probation, so sparse
+            // detected blinks (or the shallow-blink opening of a looped video)
+            // don't flip a real person to PHOTO?; a face that never showed any
+            // activity gets only the initial window before it is flagged.
+            bool provenLive = state.blinkCount + state.mouthMovementCount > 0;
+            float activityGrace = provenLive ? kLiveStickySeconds : kDecisionWindowSeconds;
+            if (state.lastActivityAt >= 0.0f && nowSeconds - state.lastActivityAt <= activityGrace)
             {
                 statuses[i].verdict = Verdict::Live;
             }
