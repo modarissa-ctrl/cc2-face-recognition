@@ -10,6 +10,8 @@
 
 #include <opencv2/imgproc.hpp>
 
+#include "ofLog.h"
+
 namespace
 {
 
@@ -176,15 +178,24 @@ std::vector<LivenessDetector::Status> LivenessDetector::update(const cv::Mat &bg
             // blink troughs it relies on. The mouth signal is likewise raw.
             float openness = faceEyeOpenness(gray, faces[i]);
             float mouthDarkness = faceMouthDarkness(gray, faces[i]);
+            // Raw per-frame signals for threshold tuning; visible only when
+            // the log level is lowered to verbose.
+            ofLogVerbose("liveness") << "track #" << trackIds[i] << " eye=" << openness
+                                     << " mouth=" << mouthDarkness;
             if (state.blink.addSample(openness))
             {
                 state.blinkCount++;
                 state.lastActivityAt = nowSeconds;
+                ofLogNotice("liveness") << "track #" << trackIds[i] << " blink #" << state.blinkCount
+                                        << " (eye=" << openness << " t=" << nowSeconds << ")";
             }
             if (state.mouth.addSample(mouthDarkness))
             {
                 state.mouthMovementCount++;
                 state.lastActivityAt = nowSeconds;
+                ofLogNotice("liveness") << "track #" << trackIds[i] << " mouth movement #"
+                                        << state.mouthMovementCount << " (mouth=" << mouthDarkness
+                                        << " t=" << nowSeconds << ")";
             }
 
             statuses[i].blinkCount = state.blinkCount;
