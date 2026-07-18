@@ -147,9 +147,19 @@ Inside the app:
 Liveness is a demo of the blink/mouth-movement technique, not anti-spoofing:
 a replayed video of a blinking person passes, and a live person who stares
 motionlessly gets flagged `PHOTO?`. The signals are measured photometrically
-(dark-pixel fraction around the eyes and between the mouth corners), so they
-need a reasonably lit, reasonably sized face; heavy glasses glare or strong
-shadows can hide blinks.
+(dark-pixel fraction around the eyes — referenced to the face's overall
+brightness — and between the mouth corners), so they need a reasonably lit,
+reasonably sized face; heavy glasses glare or strong shadows can hide blinks.
+
+Blinks are detected by *prominence*: the openness signal drifts with distance
+and lighting, but a blink dips it by roughly a fixed amount below the recent
+eyes-open level, so the detector keys on that drop (from a peak-held open
+reference) rather than a fixed threshold, with a stable-open arming gate and
+closure-duration bounds to reject camera/photo noise. Because the photometric
+signal is shallow and noisy on real faces, it will miss some blinks and the
+live/photo signals genuinely overlap — so once a face has proven live (any
+blink or mouth movement) its `LIVE` flag is held through longer quiet
+stretches, while a face that has *never* moved still flips to `PHOTO?`.
 
 ---
 
@@ -187,6 +197,21 @@ Exit code:
 
 - `0` = pass
 - non-zero = fail
+
+### A2) Headless liveness replay on a video
+
+Run the binary with:
+
+```bash
+--liveness-replay <video> [fps]
+```
+
+Decodes a video with OpenCV and runs the real detect → track → liveness
+pipeline frame by frame (sub-sampling to ~`fps`, default 23, to mirror the
+app's detection rate), printing per-frame eye/mouth signals, blink/mouth
+events, and the verdict, plus a summary of total blinks/movements and
+LIVE/PHOTO?/PENDING frame counts. This is the tool used to tune the blink
+thresholds against real footage in `test/videos/`.
 
 ### B) Headless detection on one image
 
