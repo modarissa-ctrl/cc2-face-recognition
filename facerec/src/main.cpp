@@ -14,8 +14,10 @@
 #include "MouthMovementDetector.h"
 
 #include <opencv2/imgproc.hpp>
+#include <opencv2/videoio.hpp>
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <functional>
 #include <iterator>
@@ -554,6 +556,135 @@ int runHeadlessIdentify(const std::string &path)
     return 0;
 }
 
+/**
+ * @brief Short human-readable name for a liveness verdict.
+ * @param verdict Per-face verdict to describe.
+ * @return `"LIVE"`, `"PHOTO?"`, or `"PENDING"`.
+ */
+const char *verdictName(LivenessDetector::Verdict verdict)
+{
+    switch (verdict)
+    {
+    case LivenessDetector::Verdict::Live:
+        return "LIVE";
+    case LivenessDetector::Verdict::NoActivity:
+        return "PHOTO?";
+    default:
+        return "PENDING";
+    }
+}
+
+/**
+ * @brief Replay a video through the real liveness pipeline and dump signals.
+ * @param videoPath Path to a video file decodable by OpenCV's VideoIO backend.
+ * @param targetFps Detection sampling rate to emulate, in frames per second.
+ * @return Process exit code.
+ *
+ * A headless, read-only diagnostic: it runs the exact detect -> track ->
+ * liveness chain on real footage so blink/mouth behaviour can be measured
+ * instead of guessed. The interactive app only detects on a subset of frames
+ * (detection is slow), so this mirrors that by processing one frame every
+ * `round(videoFps / targetFps)` frames; timestamps still use the original
+ * playback clock (`originalFrameIndex / videoFps`) so the decision window
+ * matches real time. Prints one line per sampled frame that has a face and a
+ * final summary. No detection or liveness logic is altered here.
+ */
+int runHeadlessLivenessReplay(const std::string &videoPath, float targetFps)
+{
+    cv::VideoCapture cap(videoPath);
+    if (!cap.isOpened())
+    {
+        std::fprintf(stderr, "could not open video: %s\n", videoPath.c_str());
+        return 1;
+    }
+
+    FaceDetector detector;
+    if (!setupHeadlessDetector(detector))
+    {
+        return 1;
+    }
+
+    double videoFps = cap.get(cv::CAP_PROP_FPS);
+    if (videoFps <= 0.0)
+    {
+        // Some containers report no rate; assume a typical webcam rate so the
+        // clock and sampling stride stay sane.
+        videoFps = 30.0;
+    }
+    int stride = std::max(1, int(std::lround(videoFps / targetFps)));
+    std::printf("video: %s  %.2f fps, sampling every %d frame(s) (~%.1f fps target)\n", videoPath.c_str(), videoFps,
+                stride, targetFps);
+    std::printf("frame     t(s)  id    eye  mouth  verdict  blinks mouths\n");
+
+    FaceTracker tracker;
+    LivenessDetector liveness;
+
+    int frameIndex = 0;
+    int sampledFrames = 0;
+    int framesWithFace = 0;
+    int liveFrames = 0;
+    int photoFrames = 0;
+    int pendingFrames = 0;
+    int totalBlinks = 0;
+    int totalMouthMovements = 0;
+
+    cv::Mat bgr;
+    while (cap.read(bgr))
+    {
+        if (bgr.empty() || frameIndex % stride != 0)
+        {
+            frameIndex++;
+            continue;
+        }
+        sampledFrames++;
+
+        float nowSeconds = float(frameIndex) / float(videoFps);
+        auto faces = detector.detect(bgr);
+        auto trackIds = tracker.update(faces);
+        auto statuses = liveness.update(bgr, faces, trackIds, nowSeconds);
+
+        cv::Mat gray;
+        cv::cvtColor(bgr, gray, cv::COLOR_BGR2GRAY);
+
+        if (!faces.empty())
+        {
+            framesWithFace++;
+            // Classify the sampled frame by its first (typically only) face and
+            // accumulate the running per-track blink/mouth totals.
+            switch (statuses[0].verdict)
+            {
+            case LivenessDetector::Verdict::Live:
+                liveFrames++;
+                break;
+            case LivenessDetector::Verdict::NoActivity:
+                photoFrames++;
+                break;
+            default:
+                pendingFrames++;
+                break;
+            }
+        }
+
+        for (size_t i = 0; i < faces.size(); i++)
+        {
+            float eye = faceEyeOpenness(gray, faces[i]);
+            float mouth = faceMouthDarkness(gray, faces[i]);
+            int id = i < trackIds.size() ? trackIds[i] : 0;
+            std::printf("%5d  %6.2f  %3d  %5.3f  %5.3f  %-7s  %5d  %5d\n", frameIndex, nowSeconds, id, eye, mouth,
+                        verdictName(statuses[i].verdict), statuses[i].blinkCount, statuses[i].mouthMovementCount);
+            totalBlinks = std::max(totalBlinks, statuses[i].blinkCount);
+            totalMouthMovements = std::max(totalMouthMovements, statuses[i].mouthMovementCount);
+        }
+        frameIndex++;
+    }
+
+    std::printf("\nsummary: %d sampled frame(s), %d with a face; blinks=%d mouth=%d; "
+                "verdict frames LIVE=%d PHOTO?=%d PENDING=%d\n",
+                sampledFrames, framesWithFace, totalBlinks, totalMouthMovements, liveFrames, photoFrames,
+                pendingFrames);
+    return 0;
+}
+
 } // namespace
 
 int main(int argc, char **argv)
@@ -569,6 +700,24 @@ int main(int argc, char **argv)
     if (std::find(args.begin(), args.end(), "--selftest") != args.end())
     {
         return runSelftest();
+    }
+    // Diagnostic video replay: --liveness-replay <video> [fps]. Kept separate
+    // from the single-image modes below because it takes an optional sampling
+    // rate after the required path.
+    if (auto flagIt = std::find(args.begin(), args.end(), "--liveness-replay"); flagIt != args.end())
+    {
+        auto pathIt = std::next(flagIt);
+        if (pathIt == args.end() || (!pathIt->empty() && (*pathIt)[0] == '-'))
+        {
+            std::fprintf(stderr, "usage: facerec --liveness-replay <video> [fps]\n");
+            return 1;
+        }
+        float targetFps = 23.0f;
+        if (auto fpsIt = std::next(pathIt); fpsIt != args.end() && !fpsIt->empty() && (*fpsIt)[0] != '-')
+        {
+            targetFps = std::stof(*fpsIt);
+        }
+        return runHeadlessLivenessReplay(*pathIt, targetFps);
     }
     for (auto [flag, run] : {std::pair{"--detect", runHeadlessDetect}, std::pair{"--identify", runHeadlessIdentify}})
     {
