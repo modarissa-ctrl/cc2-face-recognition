@@ -5,12 +5,12 @@
 
 #pragma once
 
-#include "AppPaths.h"
-#include "BlinkDetector.h"
-#include "FaceDetector.h"
-#include "FaceTracker.h"
-#include "LivenessDetector.h"
-#include "MouthMovementDetector.h"
+#include "core/AppPaths.h"
+#include "liveness/BlinkDetector.h"
+#include "detection/FaceDetector.h"
+#include "tracking/FaceTracker.h"
+#include "liveness/LivenessDetector.h"
+#include "liveness/MouthMovementDetector.h"
 #include "ofMain.h"
 
 #include <opencv2/core.hpp>

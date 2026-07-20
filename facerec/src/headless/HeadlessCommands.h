@@ -5,11 +5,11 @@
 
 #pragma once
 
-#include "AppPaths.h"
-#include "FaceDetector.h"
-#include "FaceRecognizer.h"
-#include "FaceTracker.h"
-#include "LivenessDetector.h"
+#include "core/AppPaths.h"
+#include "detection/FaceDetector.h"
+#include "recognition/FaceRecognizer.h"
+#include "tracking/FaceTracker.h"
+#include "liveness/LivenessDetector.h"
 #include "ofMain.h"
 
 #include <opencv2/imgproc.hpp>

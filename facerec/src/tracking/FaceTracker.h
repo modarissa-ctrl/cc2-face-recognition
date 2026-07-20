@@ -7,7 +7,7 @@
 
 #include <vector>
 
-#include "FaceDetector.h"
+#include "detection/FaceDetector.h"
 
 /**
  * @brief Compute the intersection-over-union of two rectangles.

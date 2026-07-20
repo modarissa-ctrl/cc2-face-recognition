@@ -3,7 +3,7 @@
  * @brief Implementation of the IoU/centroid face tracker.
  */
 
-#include "FaceTracker.h"
+#include "tracking/FaceTracker.h"
 
 #include <algorithm>
 

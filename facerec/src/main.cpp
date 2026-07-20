@@ -5,8 +5,8 @@
 
 #include "ofMain.h"
 #include "ofApp.h"
-#include "HeadlessCommands.h"
-#include "HeadlessSelftest.h"
+#include "headless/HeadlessCommands.h"
+#include "headless/HeadlessSelftest.h"
 
 #include <algorithm>
 #include <cstdio>

@@ -3,7 +3,7 @@
  * @brief Implementation of the mouth-movement state machine.
  */
 
-#include "MouthMovementDetector.h"
+#include "liveness/MouthMovementDetector.h"
 
 bool MouthMovementDetector::addSample(float darkness)
 {

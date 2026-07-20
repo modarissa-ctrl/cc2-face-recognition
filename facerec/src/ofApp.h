@@ -10,10 +10,10 @@
 #include "ofMain.h"
 #include "ofxGui.h"
 
-#include "FaceDetector.h"
-#include "FaceRecognizer.h"
-#include "FaceTracker.h"
-#include "LivenessDetector.h"
+#include "detection/FaceDetector.h"
+#include "recognition/FaceRecognizer.h"
+#include "tracking/FaceTracker.h"
+#include "liveness/LivenessDetector.h"
 
 /**
  * @brief Interactive face recognition application.

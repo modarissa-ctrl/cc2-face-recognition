@@ -3,7 +3,7 @@
  * @brief Implementation of the liveness detector and its photometric signals.
  */
 
-#include "LivenessDetector.h"
+#include "liveness/LivenessDetector.h"
 
 #include <algorithm>
 #include <iterator>
@@ -101,8 +101,9 @@ float eyeOpenness(const cv::Mat &gray, const glm::vec2 &eyeCenter, float faceWid
 {
     float halfW = kEyeRoiHalfWidthFactor * faceWidth;
     float halfH = kEyeRoiHalfHeightFactor * faceWidth;
-    return darkFraction(gray, cv::Rect(int(eyeCenter.x - halfW), int(eyeCenter.y - halfH), int(2.0f * halfW),
-                                       int(2.0f * halfH)), faceMean);
+    return darkFraction(
+        gray, cv::Rect(int(eyeCenter.x - halfW), int(eyeCenter.y - halfH), int(2.0f * halfW), int(2.0f * halfH)),
+        faceMean);
 }
 
 float faceReferenceMean(const cv::Mat &gray, const FaceDetection &face)
@@ -148,8 +149,8 @@ float faceMouthDarkness(const cv::Mat &gray, const FaceDetection &face)
     float halfW = kMouthRoiHalfWidthFactor * span;
     float halfH = kMouthRoiHalfHeightFactor * span;
     float centerY = center.y + kMouthRoiDownShiftFactor * span;
-    return darkFraction(gray, cv::Rect(int(center.x - halfW), int(centerY - halfH), int(2.0f * halfW),
-                                       int(2.0f * halfH)));
+    return darkFraction(gray,
+                        cv::Rect(int(center.x - halfW), int(centerY - halfH), int(2.0f * halfW), int(2.0f * halfH)));
 }
 
 std::vector<LivenessDetector::Status> LivenessDetector::update(const cv::Mat &bgr,
@@ -180,8 +181,7 @@ std::vector<LivenessDetector::Status> LivenessDetector::update(const cv::Mat &bg
             float mouthDarkness = faceMouthDarkness(gray, faces[i]);
             // Raw per-frame signals for threshold tuning; visible only when
             // the log level is lowered to verbose.
-            ofLogVerbose("liveness") << "track #" << trackIds[i] << " eye=" << openness
-                                     << " mouth=" << mouthDarkness;
+            ofLogVerbose("liveness") << "track #" << trackIds[i] << " eye=" << openness << " mouth=" << mouthDarkness;
             if (state.blink.addSample(openness))
             {
                 state.blinkCount++;
@@ -193,9 +193,8 @@ std::vector<LivenessDetector::Status> LivenessDetector::update(const cv::Mat &bg
             {
                 state.mouthMovementCount++;
                 state.lastActivityAt = nowSeconds;
-                ofLogNotice("liveness") << "track #" << trackIds[i] << " mouth movement #"
-                                        << state.mouthMovementCount << " (mouth=" << mouthDarkness
-                                        << " t=" << nowSeconds << ")";
+                ofLogNotice("liveness") << "track #" << trackIds[i] << " mouth movement #" << state.mouthMovementCount
+                                        << " (mouth=" << mouthDarkness << " t=" << nowSeconds << ")";
             }
 
             statuses[i].blinkCount = state.blinkCount;

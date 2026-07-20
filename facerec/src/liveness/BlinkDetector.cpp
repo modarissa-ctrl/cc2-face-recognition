@@ -3,7 +3,7 @@
  * @brief Implementation of the prominence-based blink state machine.
  */
 
-#include "BlinkDetector.h"
+#include "liveness/BlinkDetector.h"
 
 bool BlinkDetector::addSample(float openness)
 {

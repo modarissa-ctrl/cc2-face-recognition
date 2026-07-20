@@ -3,7 +3,7 @@
  * @brief Implementation of SFace recognition and gallery loading.
  */
 
-#include "FaceRecognizer.h"
+#include "recognition/FaceRecognizer.h"
 
 #include <algorithm>
 

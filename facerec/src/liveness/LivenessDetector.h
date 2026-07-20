@@ -10,9 +10,9 @@
 
 #include <opencv2/core.hpp>
 
-#include "BlinkDetector.h"
-#include "FaceDetector.h"
-#include "MouthMovementDetector.h"
+#include "liveness/BlinkDetector.h"
+#include "detection/FaceDetector.h"
+#include "liveness/MouthMovementDetector.h"
 
 /**
  * @brief Fraction of dark pixels inside one image region.

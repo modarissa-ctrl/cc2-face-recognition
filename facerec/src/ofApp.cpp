@@ -4,7 +4,7 @@
  */
 
 #include "ofApp.h"
-#include "AppPaths.h"
+#include "core/AppPaths.h"
 
 #include <algorithm>
 #include <utility>

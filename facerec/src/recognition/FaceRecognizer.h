@@ -11,7 +11,7 @@
 #include <opencv2/core.hpp>
 #include <opencv2/objdetect.hpp>
 
-#include "FaceDetector.h"
+#include "detection/FaceDetector.h"
 
 /**
  * @brief Best gallery match produced for one detected face.

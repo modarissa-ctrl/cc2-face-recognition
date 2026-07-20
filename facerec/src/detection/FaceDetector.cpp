@@ -3,7 +3,7 @@
  * @brief Implementation of YuNet face detection helpers.
  */
 
-#include "FaceDetector.h"
+#include "detection/FaceDetector.h"
 
 #include <cmath>
 
