@@ -4,7 +4,7 @@ This repository contains a cross-platform (macOS + Windows) openFrameworks app i
 
 - face detection (YuNet)
 - face recognition (SFace embeddings vs gallery)
-- image, video, and webcam input modes
+- image, video, and webcam input modes (with a multi-webcam selector)
 - face tracking (own IoU/centroid tracker: stable per-face IDs on video/webcam)
 - liveness detection (own blink + mouth-movement detection: LIVE / PHOTO? flag per tracked face)
 
@@ -134,7 +134,10 @@ Or run the produced binary directly:
 Inside the app:
 
 - open image/video from the GUI buttons or drag and drop
-- toggle webcam mode in the panel
+- toggle webcam mode in the panel; if more than one camera is attached,
+  pick which one with the webcam device selector (it shows the current
+  device name, e.g. `webcam 1/2: FaceTime HD Camera`), cycle with the `[`
+  and `]` keys, and hit `Refresh webcams` to rescan after plugging one in
 - toggle face tracking — each face on video/webcam gets a stable `#id` label
 - toggle liveness — tracked faces earn a `LIVE` flag by blinking or moving
   their mouth (yawn, talking), or a `PHOTO?` flag after ~7 s without either

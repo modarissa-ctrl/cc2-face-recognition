@@ -10,7 +10,7 @@ A desktop application that detects human faces in images, video files, and a liv
 |------|------|
 | Must | Detect face(s) in a static image and draw bounding boxes |
 | Must | Report the number of faces found |
-| Must | Same pipeline on video: video file playback and live webcam |
+| Must | Same pipeline on video: video file playback and live webcam (selectable among multiple attached cameras) |
 | Must | Recognition: match detected faces against a gallery of known-person photos, label by name |
 | Must | README (build + usage) and written report |
 | Stretch | Face tracking: persistent per-face IDs across video frames |
@@ -69,6 +69,7 @@ Single window, three input modes switchable from a small `ofxGui` panel:
 |  Faces: 3                                         |
 +---------------------------------------------------+
 | GUI panel: [Image] [Video file] [Webcam]          |
+|   webcam 1/2: FaceTime HD    [Refresh webcams]    |
 |   detector: YuNet / Haar     conf threshold: 0.6  |
 |   match threshold: 0.36      [Load gallery]       |
 +---------------------------------------------------+
