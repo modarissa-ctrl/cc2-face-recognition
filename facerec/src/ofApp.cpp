@@ -30,6 +30,9 @@ constexpr int kOverlayUnknownB = 120;
 constexpr float kHudMarginLeft = 20.0f;
 constexpr float kHudFacesBottomOffset = 44.0f;
 constexpr float kHudInfoBottomOffset = 20.0f;
+constexpr int kWebcamWidth = 1280;
+constexpr int kWebcamHeight = 720;
+constexpr int kWebcamFps = 30;
 
 /**
  * @brief Decide whether a path should be treated as a video source.
@@ -68,6 +71,8 @@ void ofApp::setup()
     gui.add(openImageButton.setup("open image..."));
     gui.add(openVideoButton.setup("open video..."));
     gui.add(webcamOn);
+    gui.add(webcamDeviceIndex);
+    gui.add(refreshWebcamsButton.setup("refresh webcams"));
     gui.add(trackingOn);
     gui.add(livenessOn);
     gui.add(scoreThreshold);
@@ -76,10 +81,14 @@ void ofApp::setup()
     openImageButton.addListener(this, &ofApp::onOpenImage);
     openVideoButton.addListener(this, &ofApp::onOpenVideo);
     loadGalleryButton.addListener(this, &ofApp::onLoadGallery);
+    refreshWebcamsButton.addListener(this, &ofApp::onRefreshWebcams);
     webcamOn.addListener(this, &ofApp::onWebcamToggle);
+    webcamDeviceIndex.addListener(this, &ofApp::onWebcamDeviceIndexChanged);
     scoreThreshold.addListener(this, &ofApp::onScoreThreshold);
     trackingOn.addListener(this, &ofApp::onTrackingToggle);
     livenessOn.addListener(this, &ofApp::onLivenessToggle);
+
+    refreshWebcamDevices(false);
 
     // a plain (non-flag) argument is an image or video to open at startup
     for (const auto &arg : args)
@@ -99,7 +108,7 @@ bool ofApp::openPath(const std::string &path)
     return isVideoPath(path) ? loadVideo(path) : loadImage(path);
 }
 
-void ofApp::stopCurrentSource()
+void ofApp::stopCurrentSource(bool keepWebcamToggle)
 {
     if (mode != InputMode::None)
     {
@@ -112,7 +121,10 @@ void ofApp::stopCurrentSource()
     else if (mode == InputMode::Webcam)
     {
         grabber.close();
-        webcamOn.setWithoutEventNotifications(false);
+        if (!keepWebcamToggle)
+        {
+            webcamOn.setWithoutEventNotifications(false);
+        }
     }
     mode = InputMode::None;
     faces.clear();
@@ -122,6 +134,105 @@ void ofApp::stopCurrentSource()
     liveStatus.clear();
     liveness.reset();
     detectMillis = 0.0f;
+}
+
+void ofApp::refreshWebcamDevices(bool keepSelection)
+{
+    int preferredDeviceId = -1;
+    if (keepSelection && !webcamDevices.empty())
+    {
+        int currentIndex =
+            ofClamp(static_cast<int>(webcamDeviceIndex.get()), 0, static_cast<int>(webcamDevices.size()) - 1);
+        preferredDeviceId = webcamDevices[currentIndex].id;
+    }
+
+    webcamDevices = grabber.listDevices();
+
+    int selectedIndex = 0;
+    if (preferredDeviceId >= 0)
+    {
+        auto it =
+            std::find_if(webcamDevices.begin(), webcamDevices.end(),
+                         [preferredDeviceId](const ofVideoDevice &device) { return device.id == preferredDeviceId; });
+        if (it != webcamDevices.end())
+        {
+            selectedIndex = static_cast<int>(std::distance(webcamDevices.begin(), it));
+        }
+    }
+
+    webcamDeviceIndex.removeListener(this, &ofApp::onWebcamDeviceIndexChanged);
+    if (webcamDevices.empty())
+    {
+        webcamDeviceIndex.set("webcam device", 0, 0, 0);
+    }
+    else
+    {
+        webcamDeviceIndex.set("webcam device", selectedIndex, 0, static_cast<int>(webcamDevices.size()) - 1);
+    }
+    updateWebcamDeviceControlLabel();
+    webcamDeviceIndex.addListener(this, &ofApp::onWebcamDeviceIndexChanged);
+
+    ofLogNotice("facerec") << "found " << webcamDevices.size() << " webcam device(s)";
+    for (const auto &device : webcamDevices)
+    {
+        ofLogNotice("facerec") << "  [" << device.id << "] " << device.deviceName
+                               << (device.bAvailable ? "" : " (unavailable)");
+    }
+}
+
+void ofApp::updateWebcamDeviceControlLabel()
+{
+    if (webcamDevices.empty())
+    {
+        webcamDeviceIndex.setName("webcam device (none)");
+        return;
+    }
+
+    int index = ofClamp(static_cast<int>(webcamDeviceIndex.get()), 0, static_cast<int>(webcamDevices.size()) - 1);
+    const ofVideoDevice &device = webcamDevices[index];
+
+    webcamDeviceIndex.setName("webcam " + ofToString(index + 1) + "/" + ofToString(webcamDevices.size()) + ": " +
+                              device.deviceName);
+}
+
+bool ofApp::startWebcam()
+{
+    if (webcamDevices.empty())
+    {
+        refreshWebcamDevices(false);
+    }
+    if (webcamDevices.empty())
+    {
+        status = "No webcam devices found.";
+        ofLogError("facerec") << status;
+        webcamOn.setWithoutEventNotifications(false);
+        stopCurrentSource();
+        return false;
+    }
+
+    int index = ofClamp(static_cast<int>(webcamDeviceIndex.get()), 0, static_cast<int>(webcamDevices.size()) - 1);
+    const ofVideoDevice &device = webcamDevices[index];
+
+    stopCurrentSource(true);
+    grabber.setDeviceID(device.id);
+    grabber.setDesiredFrameRate(kWebcamFps);
+    grabber.setup(kWebcamWidth, kWebcamHeight);
+    if (!grabber.isInitialized())
+    {
+        status = "Could not open webcam: " + device.deviceName;
+        ofLogError("facerec") << status;
+        webcamOn.setWithoutEventNotifications(false);
+        return false;
+    }
+
+    mode = InputMode::Webcam;
+    sourceName = "webcam: " + device.deviceName;
+    status.clear();
+    lastLogMillis = 0;
+    webcamOn.setWithoutEventNotifications(true);
+    ofLogNotice("facerec") << "webcam started at " << kWebcamWidth << "x" << kWebcamHeight << " on [" << device.id
+                           << "] " << device.deviceName;
+    return true;
 }
 
 bool ofApp::loadImage(const std::string &path)
@@ -413,6 +524,12 @@ void ofApp::drawHud()
     {
         info += video.isPaused() ? ", paused — space resumes" : ", space pauses";
     }
+    if (!webcamDevices.empty())
+    {
+        int index = ofClamp(static_cast<int>(webcamDeviceIndex.get()), 0, static_cast<int>(webcamDevices.size()) - 1);
+        info += ", cam " + ofToString(index + 1) + "/" + ofToString(webcamDevices.size()) + ": " +
+                webcamDevices[index].deviceName;
+    }
     info += ")";
     ofDrawBitmapStringHighlight(info, kHudMarginLeft, ofGetHeight() - kHudInfoBottomOffset);
 }
@@ -431,6 +548,14 @@ void ofApp::keyPressed(int key)
     {
         video.setPaused(!video.isPaused());
         ofLogNotice("facerec") << sourceName << (video.isPaused() ? ": paused" : ": resumed");
+    }
+    else if ((key == '[' || key == ']') && !webcamDevices.empty())
+    {
+        int current = ofClamp(static_cast<int>(webcamDeviceIndex.get()), 0, static_cast<int>(webcamDevices.size()) - 1);
+        int delta = key == ']' ? 1 : -1;
+        int count = static_cast<int>(webcamDevices.size());
+        int next = (current + delta + count) % count;
+        webcamDeviceIndex.set(next);
     }
 }
 
@@ -491,21 +616,58 @@ void ofApp::onWebcamToggle(bool &on)
         }
         return;
     }
-    stopCurrentSource();
-    grabber.setDesiredFrameRate(30);
-    grabber.setup(1280, 720);
-    if (!grabber.isInitialized())
+    refreshWebcamDevices(true);
+    if (!startWebcam())
     {
-        status = "Could not open the webcam.";
-        ofLogError("facerec") << status;
-        webcamOn.setWithoutEventNotifications(false);
+        status = webcamDevices.empty() ? "No webcam devices found." : status;
         return;
     }
-    mode = InputMode::Webcam;
-    sourceName = "webcam";
-    status.clear();
-    lastLogMillis = 0;
-    ofLogNotice("facerec") << "webcam started at 1280x720";
+}
+
+void ofApp::onWebcamDeviceIndexChanged(int &index)
+{
+    if (webcamDevices.empty() || index < 0 || index >= static_cast<int>(webcamDevices.size()))
+    {
+        return;
+    }
+
+    const ofVideoDevice &device = webcamDevices[index];
+    updateWebcamDeviceControlLabel();
+    ofLogNotice("facerec") << "selected webcam [" << device.id << "] " << device.deviceName;
+
+    if (webcamOn)
+    {
+        startWebcam();
+    }
+    else
+    {
+        status = "Selected webcam: " + device.deviceName + ". Turn webcam on to use it.";
+    }
+}
+
+void ofApp::onRefreshWebcams()
+{
+    bool webcamActive = mode == InputMode::Webcam && webcamOn;
+    refreshWebcamDevices(true);
+
+    if (webcamDevices.empty())
+    {
+        status = "No webcam devices found.";
+        if (webcamActive)
+        {
+            stopCurrentSource();
+        }
+        return;
+    }
+
+    int index = ofClamp(static_cast<int>(webcamDeviceIndex.get()), 0, static_cast<int>(webcamDevices.size()) - 1);
+    const ofVideoDevice &device = webcamDevices[index];
+    status = "Selected webcam: " + device.deviceName;
+
+    if (webcamActive)
+    {
+        startWebcam();
+    }
 }
 
 void ofApp::onScoreThreshold(float &value)

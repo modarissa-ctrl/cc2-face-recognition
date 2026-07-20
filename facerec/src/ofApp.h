@@ -80,25 +80,28 @@ class ofApp : public ofBaseApp
     LivenessDetector liveness;        //< Blink/mouth-movement live-photo classifier for tracked faces.
     InputMode mode = InputMode::None; //< Current source type feeding frames into the pipeline.
 
-    ofImage image;          //< Loaded still image.
-    ofVideoPlayer video;    //< Loaded video source.
-    ofVideoGrabber grabber; //< Live webcam feed.
-    std::string sourceName; //< Name of the current media source.
+    ofImage image;                            //< Loaded still image.
+    ofVideoPlayer video;                      //< Loaded video source.
+    ofVideoGrabber grabber;                   //< Live webcam feed.
+    std::vector<ofVideoDevice> webcamDevices; //< Enumerated webcam devices available for selection.
+    std::string sourceName;                   //< Name of the current media source.
 
     std::vector<FaceDetection> faces; //< Detected faces in the current frame.
     std::vector<FaceMatch> matches;   //< Recognition results for the detected faces in the current frame.
     std::vector<int> trackIds;        //< Stable track IDs for the detected faces, empty when not tracking.
     std::vector<LivenessDetector::Status> liveStatus; //< Liveness verdicts per face, empty when liveness is off.
-    float detectMillis = 0.0f;        //< Time taken for the last detection in milliseconds.
-    uint64_t lastLogMillis = 0;       //< Timestamp of the last log message.
-    std::string status;               //< Current status message.
+    float detectMillis = 0.0f;                        //< Time taken for the last detection in milliseconds.
+    uint64_t lastLogMillis = 0;                       //< Timestamp of the last log message.
+    std::string status;                               //< Current status message.
 
-    ofxPanel gui;                                   //< GUI panel containing all controls.
-    ofxButton openImageButton;                      //< Button to open an image file.
-    ofxButton openVideoButton;                      //< Button to open a video file.
-    ofxButton loadGalleryButton;                    //< Button to load a face recognition gallery.
-    ofParameter<bool> webcamOn{"webcam", false};    //< Toggle for webcam input.
-    ofParameter<bool> trackingOn{"tracking", true}; //< Toggle for stable face IDs on video/webcam.
+    ofxPanel gui;                                                 //< GUI panel containing all controls.
+    ofxButton openImageButton;                                    //< Button to open an image file.
+    ofxButton openVideoButton;                                    //< Button to open a video file.
+    ofxButton loadGalleryButton;                                  //< Button to load a face recognition gallery.
+    ofxButton refreshWebcamsButton;                               //< Button to refresh the webcam device list.
+    ofParameter<bool> webcamOn{"webcam", false};                  //< Toggle for webcam input.
+    ofParameter<int> webcamDeviceIndex{"webcam device", 0, 0, 0}; //< Index into `webcamDevices`.
+    ofParameter<bool> trackingOn{"tracking", true};               //< Toggle for stable face IDs on video/webcam.
     ofParameter<bool> livenessOn{"liveness", true}; //< Toggle for blink/mouth LIVE-PHOTO? flags (needs tracking).
     ofParameter<float> scoreThreshold{"conf threshold", 0.6f, 0.05f,
                                       0.95f}; //< Confidence threshold for face detection.
@@ -129,7 +132,24 @@ class ofApp : public ofBaseApp
     /**
      * @brief Tear down the currently active media source and reset state.
      */
-    void stopCurrentSource();
+    void stopCurrentSource(bool keepWebcamToggle = false);
+
+    /**
+     * @brief Enumerate webcam devices and update the GUI selector range.
+     * @param keepSelection Keep the current selection when the same device is still present.
+     */
+    void refreshWebcamDevices(bool keepSelection);
+
+    /**
+     * @brief Start webcam capture using the currently selected device.
+     * @return `true` when the selected device opened successfully.
+     */
+    bool startWebcam();
+
+    /**
+     * @brief Update the webcam selector label to include the selected device name.
+     */
+    void updateWebcamDeviceControlLabel();
 
     /**
      * @brief Run detection and optional recognition on one frame.
@@ -206,6 +226,17 @@ class ofApp : public ofBaseApp
      * @param on New webcam toggle state.
      */
     void onWebcamToggle(bool &on);
+
+    /**
+     * @brief GUI callback for changing the selected webcam device.
+     * @param index New index into `webcamDevices`.
+     */
+    void onWebcamDeviceIndexChanged(int &index);
+
+    /**
+     * @brief GUI callback for refreshing the available webcam list.
+     */
+    void onRefreshWebcams();
 
     /**
      * @brief GUI callback for updating the YuNet confidence threshold.
