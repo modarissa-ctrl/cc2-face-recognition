@@ -72,12 +72,15 @@ Single window, three input modes switchable from a small `ofxGui` panel:
 |   webcam 1/2: FaceTime HD    [Refresh webcams]    |
 |   detector: YuNet / Haar     conf threshold: 0.6  |
 |   match threshold: 0.36      [Load gallery]       |
+|   [add face by id...]  (or press 'A' to enroll)   |
 +---------------------------------------------------+
 ```
 
 Core pipeline (each frame): grab frame → convert to `cv::Mat` → detect faces → align/crop each face → embed → match against gallery → *(stretch: update tracker, update blink state)* → draw boxes, labels, count.
 
 Gallery format: a `gallery/` folder with one subfolder per person (`gallery/alice/*.jpg`); embeddings computed once at load time.
+
+**Runtime enrollment:** faces can be added to the gallery while the app is running. With tracking on and a face visible (labeled `#id`), pressing the `A` key or clicking `add face by id...` prompts for the face's `#id` and a person name, then saves the cropped face under `gallery/<name>/`. The new photo is loaded on the next app start; the running session's recognition is intentionally not reloaded.
 
 ## 7. Milestones
 

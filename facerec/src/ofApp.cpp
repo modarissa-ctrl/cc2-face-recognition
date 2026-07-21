@@ -7,7 +7,11 @@
 #include "core/AppPaths.h"
 
 #include <algorithm>
+#include <cctype>
+#include <cmath>
 #include <utility>
+
+#include <opencv2/imgcodecs.hpp>
 
 namespace
 {
@@ -45,6 +49,93 @@ bool isVideoPath(const std::string &path)
     return std::find(kVideoExtensions.begin(), kVideoExtensions.end(), ext) != kVideoExtensions.end();
 }
 
+/**
+ * @brief Trim whitespace from both ends of the provided string.
+ */
+std::string trimCopy(const std::string &text)
+{
+    size_t begin = 0;
+    size_t end = text.size();
+    while (begin < end && std::isspace(static_cast<unsigned char>(text[begin])))
+    {
+        begin++;
+    }
+    while (end > begin && std::isspace(static_cast<unsigned char>(text[end - 1])))
+    {
+        end--;
+    }
+    return text.substr(begin, end - begin);
+}
+
+/**
+ * @brief Replace path-unsafe characters so names can be used as folder names.
+ */
+std::string sanitizePersonFolder(const std::string &raw)
+{
+    std::string clean;
+    clean.reserve(raw.size());
+    for (unsigned char c : raw)
+    {
+        if (std::isalnum(c) || c == '-' || c == '_' || c == ' ')
+        {
+            clean.push_back(static_cast<char>(c));
+        }
+        else
+        {
+            clean.push_back('_');
+        }
+    }
+    return trimCopy(clean);
+}
+
+/**
+ * @brief Parse a positive integer from text input.
+ */
+bool parsePositiveInt(const std::string &text, int &value)
+{
+    if (text.empty())
+    {
+        return false;
+    }
+    for (unsigned char c : text)
+    {
+        if (!std::isdigit(c))
+        {
+            return false;
+        }
+    }
+    try
+    {
+        value = std::stoi(text);
+        return value > 0;
+    }
+    catch (const std::exception &)
+    {
+        return false;
+    }
+}
+
+/**
+ * @brief Face crop rectangle with padding, clamped to image bounds.
+ */
+cv::Rect paddedFaceRect(const ofRectangle &box, int imageWidth, int imageHeight)
+{
+    constexpr float kPaddingFactor = 0.25f;
+    float padX = box.width * kPaddingFactor;
+    float padY = box.height * kPaddingFactor;
+
+    int x0 = std::max(0, static_cast<int>(std::floor(box.x - padX)));
+    int y0 = std::max(0, static_cast<int>(std::floor(box.y - padY)));
+    int x1 = std::min(imageWidth, static_cast<int>(std::ceil(box.x + box.width + padX)));
+    int y1 = std::min(imageHeight, static_cast<int>(std::ceil(box.y + box.height + padY)));
+
+    if (x1 <= x0 || y1 <= y0)
+    {
+        return {};
+    }
+    return {x0, y0, x1 - x0, y1 - y0};
+}
+
 } // namespace
 
 void ofApp::setup()
@@ -78,9 +169,11 @@ void ofApp::setup()
     gui.add(scoreThreshold);
     gui.add(matchThreshold);
     gui.add(loadGalleryButton.setup("load gallery..."));
+    gui.add(addFaceButton.setup("add face by id..."));
     openImageButton.addListener(this, &ofApp::onOpenImage);
     openVideoButton.addListener(this, &ofApp::onOpenVideo);
     loadGalleryButton.addListener(this, &ofApp::onLoadGallery);
+    addFaceButton.addListener(this, &ofApp::onAddFace);
     refreshWebcamsButton.addListener(this, &ofApp::onRefreshWebcams);
     webcamOn.addListener(this, &ofApp::onWebcamToggle);
     webcamDeviceIndex.addListener(this, &ofApp::onWebcamDeviceIndexChanged);
@@ -132,6 +225,7 @@ void ofApp::stopCurrentSource(bool keepWebcamToggle)
     trackIds.clear();
     tracker.reset();
     liveStatus.clear();
+    lastFrameBgr.release();
     liveness.reset();
     detectMillis = 0.0f;
 }
@@ -342,6 +436,7 @@ void ofApp::detectFrame(const ofPixels &pixels)
 {
     uint64_t start = ofGetElapsedTimeMicros();
     cv::Mat bgr = toBgr(pixels);
+    lastFrameBgr = bgr;
     faces = detector.detect(bgr);
     matches = recognizer.hasGallery() ? recognizer.identify(bgr, faces) : std::vector<FaceMatch>();
     // Tracking only makes sense for temporal sources; a still image is a
@@ -524,6 +619,7 @@ void ofApp::drawHud()
     {
         info += video.isPaused() ? ", paused — space resumes" : ", space pauses";
     }
+    info += ", A adds face by #id";
     if (!webcamDevices.empty())
     {
         int index = ofClamp(static_cast<int>(webcamDeviceIndex.get()), 0, static_cast<int>(webcamDevices.size()) - 1);
@@ -543,6 +639,10 @@ void ofApp::keyPressed(int key)
         {
             openPath(result.getPath());
         }
+    }
+    else if (key == 'a' || key == 'A')
+    {
+        addFaceToGalleryInteractive();
     }
     else if (key == ' ' && mode == InputMode::Video)
     {
@@ -595,6 +695,112 @@ void ofApp::loadGallery(const std::string &path)
     refreshStillImage();
 }
 
+bool ofApp::saveFaceToGalleryByTrackId(int trackId, const std::string &personName)
+{
+    if (lastFrameBgr.empty())
+    {
+        status = "No frame available to save.";
+        ofLogWarning("facerec") << status;
+        return false;
+    }
+
+    auto idIt = std::find(trackIds.begin(), trackIds.end(), trackId);
+    if (idIt == trackIds.end())
+    {
+        status = "Track ID #" + ofToString(trackId) + " is not visible in the current frame.";
+        ofLogWarning("facerec") << status;
+        return false;
+    }
+
+    size_t index = static_cast<size_t>(std::distance(trackIds.begin(), idIt));
+    if (index >= faces.size())
+    {
+        status = "Internal mismatch between tracks and detections.";
+        ofLogWarning("facerec") << status;
+        return false;
+    }
+
+    cv::Rect roi = paddedFaceRect(faces[index].box, lastFrameBgr.cols, lastFrameBgr.rows);
+    if (roi.width <= 0 || roi.height <= 0)
+    {
+        status = "Could not crop the requested face.";
+        ofLogWarning("facerec") << status;
+        return false;
+    }
+
+    cv::Mat crop = lastFrameBgr(roi).clone();
+    std::string cleanName = sanitizePersonFolder(trimCopy(personName));
+    if (cleanName.empty())
+    {
+        status = "Name cannot be empty.";
+        ofLogWarning("facerec") << status;
+        return false;
+    }
+
+    std::string galleryRoot = ofToDataPath(AppPaths::kGalleryDir, true);
+    std::string personDir = ofFilePath::join(galleryRoot, cleanName);
+    if (!ofDirectory::doesDirectoryExist(personDir, false) && !ofDirectory::createDirectory(personDir, false, true))
+    {
+        status = "Could not create gallery folder: " + cleanName;
+        ofLogError("facerec") << status;
+        return false;
+    }
+
+    std::string fileName = ofGetTimestampString("%Y%m%d-%H%M%S") + "_" + ofToString(ofGetElapsedTimeMillis()) +
+                           "_id" + ofToString(trackId) + ".png";
+    std::string outputPath = ofFilePath::join(personDir, fileName);
+    if (!cv::imwrite(outputPath, crop))
+    {
+        status = "Failed to write gallery image.";
+        ofLogError("facerec") << status << " path=" << outputPath;
+        return false;
+    }
+
+    ofLogNotice("facerec") << "saved track #" << trackId << " as '" << cleanName << "' -> " << outputPath;
+    return true;
+}
+
+void ofApp::addFaceToGalleryInteractive()
+{
+    if (trackIds.empty() || faces.empty())
+    {
+        status = "No tracked faces. Enable tracking and keep a face visible first.";
+        ofLogWarning("facerec") << status;
+        return;
+    }
+
+    std::string idText = trimCopy(ofSystemTextBoxDialog("Enter face ID to save (overlay uses #id):", ""));
+    if (idText.empty())
+    {
+        status = "Add face canceled.";
+        return;
+    }
+
+    int trackId = 0;
+    if (!parsePositiveInt(idText, trackId))
+    {
+        status = "Invalid face ID: " + idText;
+        ofLogWarning("facerec") << status;
+        return;
+    }
+
+    std::string name = trimCopy(
+        ofSystemTextBoxDialog("Enter person name for face #" + ofToString(trackId) + " (folder label):", ""));
+    if (name.empty())
+    {
+        status = "Add face canceled.";
+        return;
+    }
+
+    if (!saveFaceToGalleryByTrackId(trackId, name))
+    {
+        return;
+    }
+
+    status = "Saved face #" + ofToString(trackId) + " as '" + sanitizePersonFolder(name) +
+             "'. Restart app (or reload gallery) to use it.";
+}
+
 void ofApp::onLoadGallery()
 {
     auto result = ofSystemLoadDialog("Choose a gallery folder (one subfolder per person)", true /* folder selection */);
@@ -602,6 +808,11 @@ void ofApp::onLoadGallery()
     {
         loadGallery(result.getPath());
     }
+}
+
+void ofApp::onAddFace()
+{
+    addFaceToGalleryInteractive();
 }
 
 void ofApp::onWebcamToggle(bool &on)

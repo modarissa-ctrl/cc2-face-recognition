@@ -90,6 +90,7 @@ class ofApp : public ofBaseApp
     std::vector<FaceMatch> matches;   //< Recognition results for the detected faces in the current frame.
     std::vector<int> trackIds;        //< Stable track IDs for the detected faces, empty when not tracking.
     std::vector<LivenessDetector::Status> liveStatus; //< Liveness verdicts per face, empty when liveness is off.
+    cv::Mat lastFrameBgr;                           //< Most recent source frame in BGR, used for runtime gallery saves.
     float detectMillis = 0.0f;                        //< Time taken for the last detection in milliseconds.
     uint64_t lastLogMillis = 0;                       //< Timestamp of the last log message.
     std::string status;                               //< Current status message.
@@ -98,6 +99,7 @@ class ofApp : public ofBaseApp
     ofxButton openImageButton;                                    //< Button to open an image file.
     ofxButton openVideoButton;                                    //< Button to open a video file.
     ofxButton loadGalleryButton;                                  //< Button to load a face recognition gallery.
+    ofxButton addFaceButton;                                      //< Button to add one tracked face to the gallery.
     ofxButton refreshWebcamsButton;                               //< Button to refresh the webcam device list.
     ofParameter<bool> webcamOn{"webcam", false};                  //< Toggle for webcam input.
     ofParameter<int> webcamDeviceIndex{"webcam device", 0, 0, 0}; //< Index into `webcamDevices`.
@@ -164,6 +166,19 @@ class ofApp : public ofBaseApp
     void loadGallery(const std::string &path);
 
     /**
+     * @brief Prompt for track ID and person name, then save the face crop to gallery.
+     */
+    void addFaceToGalleryInteractive();
+
+    /**
+     * @brief Save one tracked face crop into the persistent gallery.
+     * @param trackId Stable tracker ID shown on overlay labels.
+     * @param personName Person label used as the gallery subfolder name.
+     * @return `true` when the crop was written successfully.
+     */
+    bool saveFaceToGalleryByTrackId(int trackId, const std::string &personName);
+
+    /**
      * @brief Report whether the current source is a loaded still image.
      * @return `true` when an image is active and allocated.
      */
@@ -220,6 +235,11 @@ class ofApp : public ofBaseApp
      * @brief GUI callback for choosing a gallery directory.
      */
     void onLoadGallery();
+
+    /**
+     * @brief GUI callback for adding one currently tracked face to the gallery.
+     */
+    void onAddFace();
 
     /**
      * @brief GUI callback for enabling or disabling the webcam.

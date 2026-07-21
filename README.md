@@ -144,6 +144,11 @@ Inside the app:
   (requires tracking to be on; nothing is shown while the verdict is pending)
 - tune detection score threshold and recognition match threshold
 - load a custom gallery from the panel
+- enroll a face into the gallery at runtime: with tracking on and a face
+  visible (it shows a `#id` label), press the `A` key or click
+  `add face by id...`, enter the face's `#id`, then type the person's name.
+  The cropped face is saved under `gallery/<name>/` and is picked up the
+  next time the app starts (the running session is not reloaded)
 
 ### Liveness limitations
 
