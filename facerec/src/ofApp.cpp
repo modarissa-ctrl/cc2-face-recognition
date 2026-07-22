@@ -769,19 +769,26 @@ void ofApp::addFaceToGalleryInteractive()
         return;
     }
 
-    std::string idText = trimCopy(ofSystemTextBoxDialog("Enter face ID to save (overlay uses #id):", ""));
-    if (idText.empty())
-    {
-        status = "Add face canceled.";
-        return;
-    }
-
     int trackId = 0;
-    if (!parsePositiveInt(idText, trackId))
+    if (trackIds.size() == 1)
     {
-        status = "Invalid face ID: " + idText;
-        ofLogWarning("facerec") << status;
-        return;
+        trackId = trackIds.front();
+    }
+    else
+    {
+        std::string idText = trimCopy(ofSystemTextBoxDialog("Enter face ID to save (overlay uses #id):", ""));
+        if (idText.empty())
+        {
+            status = "Add face canceled.";
+            return;
+        }
+
+        if (!parsePositiveInt(idText, trackId))
+        {
+            status = "Invalid face ID: " + idText;
+            ofLogWarning("facerec") << status;
+            return;
+        }
     }
 
     std::string name = trimCopy(
