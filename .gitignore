@@ -124,3 +124,6 @@ playground.xcworkspace
 *.dSYM/
 *.idb
 *.pdb
+
+### PyCharm
+.idea/
